@@ -62,7 +62,7 @@ fun EchoLauncherScreen(
     var allApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
     var selectedTab by remember { mutableStateOf(LauncherTab.GAMES) }
     var currentFocusZone by remember { mutableStateOf(FocusZone.CAROUSEL) }
-    var gamepadLayout by remember { mutableStateOf(GamepadLayout.XBOX) }
+    var gamepadLayout by remember { mutableStateOf(GamepadLayout.ABXY) }
 
     var selectedGameIndex by remember { mutableIntStateOf(0) }
     var selectedMediaIndex by remember { mutableIntStateOf(0) }
@@ -356,7 +356,7 @@ fun EchoLauncherScreen(
                 handleKeyNavigation(keyEvent.nativeKeyEvent.keyCode, isDown)
             }
     ) {
-        // PS5/Handheld dynamic radial ambient glow background with cybernetic grid
+        // Dynamic radial ambient glow background with cybernetic grid
         AmbientBackground(targetAccentColor = activeAccentColor)
 
         Column(

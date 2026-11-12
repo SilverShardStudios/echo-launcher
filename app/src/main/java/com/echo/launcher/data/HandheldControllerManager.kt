@@ -6,26 +6,22 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 
 enum class GamepadLayout {
-    XBOX,      // A = Confirm (Bottom), B = Cancel (Right)
-    NINTENDO   // B = Confirm (Bottom), A = Cancel (Right) - Common on Anbernic & Asian Handhelds
+    ABXY,      // Standard Android / South Confirm (A = Confirm, B = Cancel)
+    BAYX       // Retro / East Confirm (B = Confirm, A = Cancel)
 }
 
 /**
- * Robust controller & analog stick interpreter for Anbernic, Retroid, Ayn, and standard gamepads.
+ * Robust controller & analog stick interpreter for handheld and gamepad devices.
  * Translates analog sticks, D-pad HAT axes, and button layout preferences into clean navigation actions.
  */
 class HandheldControllerManager {
 
-    var layout: GamepadLayout = GamepadLayout.XBOX
+    var layout: GamepadLayout = GamepadLayout.ABXY
 
     private var lastStickMoveTime = 0L
     private val stickDeadzone = 0.50f
-    private val stickRepeatInterval = 180L // milliseconds between stick repeat steps
+    private val stickRepeatInterval = 180L
 
-    /**
-     * Intercepts analog joystick and HAT axis motions from Anbernic and gamepad devices.
-     * Returns a synthetic KeyEvent code if a directional threshold was crossed.
-     */
     fun processMotionEvent(event: MotionEvent, onDirectionAction: (directionKeyCode: Int) -> Boolean): Boolean {
         if ((event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK &&
             (event.source and InputDevice.SOURCE_GAMEPAD) != InputDevice.SOURCE_GAMEPAD
@@ -38,7 +34,6 @@ class HandheldControllerManager {
             return false
         }
 
-        // Anbernic and retro handhelds frequently map D-pad to HAT_X / HAT_Y
         val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
         val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
 
@@ -58,7 +53,6 @@ class HandheldControllerManager {
             return onDirectionAction(KeyEvent.KEYCODE_DPAD_DOWN)
         }
 
-        // Left Analog Stick (AXIS_X / AXIS_Y)
         val stickX = event.getAxisValue(MotionEvent.AXIS_X)
         val stickY = event.getAxisValue(MotionEvent.AXIS_Y)
 
@@ -81,17 +75,13 @@ class HandheldControllerManager {
         return false
     }
 
-    /**
-     * Maps physical key code to logical Action (Confirm, Cancel, Options, Drawer)
-     * based on active handheld layout.
-     */
     fun isConfirmKey(keyCode: Int): Boolean {
         return when (layout) {
-            GamepadLayout.XBOX -> keyCode == KeyEvent.KEYCODE_BUTTON_A ||
+            GamepadLayout.ABXY -> keyCode == KeyEvent.KEYCODE_BUTTON_A ||
                     keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
                     keyCode == KeyEvent.KEYCODE_ENTER ||
                     keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-            GamepadLayout.NINTENDO -> keyCode == KeyEvent.KEYCODE_BUTTON_B ||
+            GamepadLayout.BAYX -> keyCode == KeyEvent.KEYCODE_BUTTON_B ||
                     keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
                     keyCode == KeyEvent.KEYCODE_ENTER
         }
@@ -99,10 +89,10 @@ class HandheldControllerManager {
 
     fun isCancelKey(keyCode: Int): Boolean {
         return when (layout) {
-            GamepadLayout.XBOX -> keyCode == KeyEvent.KEYCODE_BUTTON_B ||
+            GamepadLayout.ABXY -> keyCode == KeyEvent.KEYCODE_BUTTON_B ||
                     keyCode == KeyEvent.KEYCODE_BACK ||
                     keyCode == KeyEvent.KEYCODE_ESCAPE
-            GamepadLayout.NINTENDO -> keyCode == KeyEvent.KEYCODE_BUTTON_A ||
+            GamepadLayout.BAYX -> keyCode == KeyEvent.KEYCODE_BUTTON_A ||
                     keyCode == KeyEvent.KEYCODE_BACK ||
                     keyCode == KeyEvent.KEYCODE_ESCAPE
         }

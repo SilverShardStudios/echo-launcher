@@ -75,7 +75,7 @@ fun GameCarousel(
     onLaunch: (AppItem) -> Unit,
     onOptions: (AppItem) -> Unit,
     currentFocusZone: FocusZone,
-    gamepadLayout: GamepadLayout = GamepadLayout.XBOX,
+    gamepadLayout: GamepadLayout = GamepadLayout.ABXY,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
@@ -294,7 +294,7 @@ private fun ConsoleGameHero(
     onPlayClicked: () -> Unit,
     onOptionsClicked: () -> Unit
 ) {
-    val confirmBtn = if (gamepadLayout == GamepadLayout.XBOX) "A" else "B"
+    val confirmBtn = if (gamepadLayout == GamepadLayout.ABXY) "A" else "B"
     val optionsBtn = "Y"
 
     Column(

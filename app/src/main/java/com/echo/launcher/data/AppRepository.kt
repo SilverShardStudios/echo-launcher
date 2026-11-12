@@ -106,16 +106,16 @@ class AppRepository(private val context: Context) {
         val l = label.lowercase()
         return when {
             p.contains("retroarch") || l.contains("retroarch") -> "RETROARCH"
-            p.contains("drastic") || p.contains("melonds") || l.contains("drastic") || l.contains("melonds") -> "NINTENDO DS"
-            p.contains("citra") || p.contains("mandarine") || p.contains("lime3ds") || l.contains("citra") -> "NINTENDO 3DS"
-            p.contains("dolphin") || l.contains("dolphin") -> "GAMECUBE / WII"
-            p.contains("ppsspp") || l.contains("ppsspp") -> "PSP"
-            p.contains("aethersx2") || p.contains("nethersx2") || p.contains("play!") -> "PS2"
-            p.contains("duckstation") || p.contains("epsxe") || p.contains("swanstation") -> "PS1"
+            p.contains("drastic") || p.contains("melonds") || l.contains("drastic") || l.contains("melonds") -> "DUAL SCREEN"
+            p.contains("citra") || p.contains("mandarine") || p.contains("lime3ds") || l.contains("citra") -> "3D PORTABLE"
+            p.contains("dolphin") || l.contains("dolphin") -> "OPTICAL RETRO"
+            p.contains("ppsspp") || l.contains("ppsspp") -> "PORTABLE"
+            p.contains("aethersx2") || p.contains("nethersx2") || p.contains("play!") -> "128-BIT RETRO"
+            p.contains("duckstation") || p.contains("epsxe") || p.contains("swanstation") -> "32-BIT RETRO"
             p.contains("yuzu") || p.contains("suyu") || p.contains("sudachi") || p.contains("skyline") || p.contains("strato") -> "STANDALONE EMU"
-            p.contains("vita3k") -> "PS VITA"
+            p.contains("vita3k") -> "OLED PORTABLE"
             p.contains("redream") || p.contains("flycast") -> "DREAMCAST"
-            p.contains("mupen") || p.contains("m64plus") -> "N64"
+            p.contains("mupen") || p.contains("m64plus") -> "64-BIT RETRO"
             p.contains("scummvm") -> "RETRO PC"
             p.contains("daijisho") || p.contains("beacon") || p.contains("pegasus") || p.contains("emulationstation") -> "FRONTEND"
             p.contains("moonlight") || p.contains("steamlink") || p.contains("geforce") || p.contains("parsec") || p.contains("psplay") -> "STREAMING"
@@ -138,9 +138,7 @@ class AppRepository(private val context: Context) {
         return lowered.contains("game") ||
                 lowered.contains("steam") ||
                 lowered.contains("emulator") ||
-                lowered.contains("arcade") ||
-                lowered.contains("playstation") ||
-                lowered.contains("xbox")
+                lowered.contains("arcade")
     }
 
     private fun isMediaApp(appInfo: ApplicationInfo, packageName: String, label: String): Boolean {
