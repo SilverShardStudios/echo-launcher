@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.FocusZone
+import com.echo.launcher.data.GamepadLayout
+import com.echo.launcher.ui.theme.BadgeBlue
 import com.echo.launcher.ui.theme.CarbonDark
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.PlatinumWhite
@@ -73,12 +75,17 @@ fun GameCarousel(
     onLaunch: (AppItem) -> Unit,
     onOptions: (AppItem) -> Unit,
     currentFocusZone: FocusZone,
+    gamepadLayout: GamepadLayout = GamepadLayout.XBOX,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
-    val cardBaseWidth = 168.dp
-    val cardBaseHeight = 168.dp
+    val screenHeight = configuration.screenHeightDp.dp
+
+    // Responsive sizing for Anbernic 4:3, 1:1 (RG Cube) and 16:9 displays
+    val isCompactScreen = screenHeight < 500.dp
+    val cardBaseWidth = if (isCompactScreen) 146.dp else 168.dp
+    val cardBaseHeight = if (isCompactScreen) 146.dp else 168.dp
     val lazyListState = rememberLazyListState()
 
     LaunchedEffect(selectedIndex, apps.size) {
@@ -106,9 +113,9 @@ fun GameCarousel(
                 state = lazyListState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(218.dp),
+                    .height(if (isCompactScreen) 190.dp else 222.dp),
                 contentPadding = PaddingValues(horizontal = screenWidth / 2 - cardBaseWidth / 2),
-                horizontalArrangement = Arrangement.spacedBy(22.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 itemsIndexed(apps, key = { _, item -> item.id }) { index, item ->
@@ -130,13 +137,14 @@ fun GameCarousel(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Metadata Hero Section
             if (activeApp != null) {
                 ConsoleGameHero(
                     app = activeApp,
                     isCarouselFocused = isCarouselFocused,
+                    gamepadLayout = gamepadLayout,
                     onPlayClicked = { onLaunch(activeApp) },
                     onOptionsClicked = { onOptions(activeApp) }
                 )
@@ -181,10 +189,10 @@ private fun ConsoleGameCard(
             .width(cardWidth)
             .height(cardHeight)
             .scale(animatedScale)
-            .shadow(elevation, shape = RoundedCornerShape(24.dp), spotColor = ElectricCyan)
-            .clip(RoundedCornerShape(24.dp))
+            .shadow(elevation, shape = RoundedCornerShape(22.dp), spotColor = ElectricCyan)
+            .clip(RoundedCornerShape(22.dp))
             .background(SurfaceCard)
-            .border(if (isSelected) 2.5.dp else 1.dp, borderColor, RoundedCornerShape(24.dp))
+            .border(if (isSelected) 2.5.dp else 1.dp, borderColor, RoundedCornerShape(22.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -192,12 +200,10 @@ private fun ConsoleGameCard(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Specular top rim highlight (authentic console hardware shader look)
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Radial accent background fill
             val radialBrush = Brush.radialGradient(
                 colors = listOf(
-                    app.accentColor.copy(alpha = if (isSelected) 0.28f else 0.08f),
+                    app.accentColor.copy(alpha = if (isSelected) 0.32f else 0.08f),
                     CarbonDark
                 ),
                 center = Offset(size.width / 2f, size.height * 0.40f),
@@ -205,7 +211,7 @@ private fun ConsoleGameCard(
             )
             drawRect(brush = radialBrush)
 
-            // Top rim specular highlight line
+            // Top specular highlight line
             drawLine(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
@@ -220,40 +226,59 @@ private fun ConsoleGameCard(
             )
         }
 
-        // App/Game Icon
+        // App / Game / Emulator Icon
         if (app.iconBitmap != null) {
             Image(
                 bitmap = app.iconBitmap,
                 contentDescription = app.label,
                 modifier = Modifier
-                    .size(94.dp)
-                    .clip(RoundedCornerShape(20.dp)),
+                    .size(88.dp)
+                    .clip(RoundedCornerShape(18.dp)),
                 contentScale = ContentScale.Fit
             )
         } else {
             Box(
                 modifier = Modifier
-                    .size(84.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .size(78.dp)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(app.accentColor.copy(alpha = 0.25f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = app.label.take(2).uppercase(),
                     color = PureWhite,
-                    fontSize = 28.sp,
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        // Active indicator on bottom
+        // Top-left Hardware Tag / Badge
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(Color.Black.copy(alpha = 0.55f))
+                .border(0.6.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(5.dp))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = app.systemTag,
+                color = if (app.isEmulator) BadgeBlue else TextMuted,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+        }
+
+        // Active bottom dot
         if (isSelected) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 7.dp)
-                    .size(6.dp)
+                    .size(5.dp)
                     .clip(CircleShape)
                     .background(if (isCarouselFocused) ElectricCyan else TextMuted)
             )
@@ -265,9 +290,13 @@ private fun ConsoleGameCard(
 private fun ConsoleGameHero(
     app: AppItem,
     isCarouselFocused: Boolean,
+    gamepadLayout: GamepadLayout,
     onPlayClicked: () -> Unit,
     onOptionsClicked: () -> Unit
 ) {
+    val confirmBtn = if (gamepadLayout == GamepadLayout.XBOX) "A" else "B"
+    val optionsBtn = "Y"
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -276,7 +305,7 @@ private fun ConsoleGameHero(
         Text(
             text = app.label,
             color = PlatinumWhite,
-            fontSize = 22.sp,
+            fontSize = 21.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -285,14 +314,14 @@ private fun ConsoleGameHero(
             modifier = Modifier.padding(horizontal = 32.dp)
         )
 
-        // Metadata Subtitle Line (Status • Category)
+        // Metadata Subtitle Line
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = if (app.isGame) "READY TO PLAY" else "APPLICATION",
-                color = ElectricCyan,
+                text = if (app.isEmulator) "RETRO EMULATOR" else if (app.isGame) "READY TO PLAY" else "APPLICATION",
+                color = if (app.isEmulator) BadgeBlue else ElectricCyan,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
@@ -310,21 +339,21 @@ private fun ConsoleGameHero(
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         // Dual Action Buttons: [ ▶ Play ] and [ ⋯ Options ]
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Primary Pill Play Button
             PlayPillButton(
                 isCarouselFocused = isCarouselFocused,
+                confirmButtonLabel = confirmBtn,
                 onClick = onPlayClicked
             )
 
-            // Secondary Options Button
             OptionsPillButton(
+                optionsButtonLabel = optionsBtn,
                 onClick = onOptionsClicked
             )
         }
@@ -334,6 +363,7 @@ private fun ConsoleGameHero(
 @Composable
 private fun PlayPillButton(
     isCarouselFocused: Boolean,
+    confirmButtonLabel: String,
     onClick: () -> Unit
 ) {
     val glowColor by animateColorAsState(
@@ -357,7 +387,7 @@ private fun PlayPillButton(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 24.dp, vertical = 7.dp),
+            .padding(horizontal = 22.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -377,7 +407,7 @@ private fun PlayPillButton(
             Text(
                 text = "Play",
                 color = Color.Black,
-                fontSize = 13.5.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.5.sp
             )
@@ -391,7 +421,7 @@ private fun PlayPillButton(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "A",
+                        text = confirmButtonLabel,
                         color = Color.Black,
                         fontSize = 8.5.sp,
                         fontWeight = FontWeight.Black
@@ -404,6 +434,7 @@ private fun PlayPillButton(
 
 @Composable
 private fun OptionsPillButton(
+    optionsButtonLabel: String,
     onClick: () -> Unit
 ) {
     Box(
@@ -416,7 +447,7 @@ private fun OptionsPillButton(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 14.dp, vertical = 7.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -426,7 +457,7 @@ private fun OptionsPillButton(
             Text(
                 text = "⋯ Options",
                 color = TextSecondary,
-                fontSize = 12.5.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Box(
@@ -437,7 +468,7 @@ private fun OptionsPillButton(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Y",
+                    text = optionsButtonLabel,
                     color = Color(0xFFEAB308),
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Black
@@ -451,7 +482,7 @@ private fun OptionsPillButton(
 private fun EmptyCarouselState() {
     Column(
         modifier = Modifier
-            .height(200.dp)
+            .height(180.dp)
             .fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -464,7 +495,7 @@ private fun EmptyCarouselState() {
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Press (X) or DPAD DOWN to access All Apps",
+            text = "Press (X) or DPAD DOWN to access All Apps & Emulators",
             color = TextSecondary.copy(alpha = 0.6f),
             fontSize = 12.sp
         )

@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import com.echo.launcher.ui.theme.ObsidianBackground
 
 @Composable
@@ -28,47 +29,63 @@ fun AmbientBackground(
         // Base dark obsidian canvas
         drawRect(color = ObsidianBackground)
 
-        val centerGlow = Offset(x = size.width * 0.50f, y = size.height * 0.40f)
-        val glowRadius = size.width * 0.55f
+        val centerGlow = Offset(x = size.width * 0.50f, y = size.height * 0.42f)
+        val glowRadius = size.width * 0.60f
 
-        // PS5-inspired radial ambient glow that smoothly tracks focused item
-        val ambientBrush = Brush.radialGradient(
-            colors = listOf(
-                animatedAccentColor.copy(alpha = 0.32f),
-                animatedAccentColor.copy(alpha = 0.16f),
-                animatedAccentColor.copy(alpha = 0.05f),
-                Color.Transparent
-            ),
-            center = centerGlow,
-            radius = glowRadius
-        )
-
+        // Dynamic radial ambient glow tracking focused game/emulator
         drawCircle(
-            brush = ambientBrush,
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    animatedAccentColor.copy(alpha = 0.34f),
+                    animatedAccentColor.copy(alpha = 0.14f),
+                    animatedAccentColor.copy(alpha = 0.04f),
+                    Color.Transparent
+                ),
+                center = centerGlow,
+                radius = glowRadius
+            ),
             radius = glowRadius,
             center = centerGlow
         )
 
-        // Soft secondary top-light wash
-        val topWashBrush = Brush.verticalGradient(
-            colors = listOf(
-                animatedAccentColor.copy(alpha = 0.08f),
-                Color.Transparent
-            ),
-            startY = 0f,
-            endY = size.height * 0.35f
-        )
-        drawRect(brush = topWashBrush)
+        // Handheld Cybernetic Grid Lines (subtle, non-distracting)
+        val gridStep = 56.dp.toPx()
+        val gridAlpha = 0.035f
+        val gridColor = animatedAccentColor.copy(alpha = gridAlpha)
 
-        // Bottom cinematic shadow to frame the system dock
-        val bottomVignette = Brush.verticalGradient(
-            colors = listOf(
-                Color.Transparent,
-                ObsidianBackground.copy(alpha = 0.85f)
-            ),
-            startY = size.height * 0.70f,
-            endY = size.height
+        // Subtle horizontal guide rails
+        for (y in 0..(size.height / gridStep).toInt()) {
+            val yPos = y * gridStep
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, yPos),
+                end = Offset(size.width, yPos),
+                strokeWidth = 1f
+            )
+        }
+
+        // Top specular wash
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    animatedAccentColor.copy(alpha = 0.08f),
+                    Color.Transparent
+                ),
+                startY = 0f,
+                endY = size.height * 0.35f
+            )
         )
-        drawRect(brush = bottomVignette)
+
+        // Bottom cinematic vignette
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    ObsidianBackground.copy(alpha = 0.88f)
+                ),
+                startY = size.height * 0.68f,
+                endY = size.height
+            )
+        )
     }
 }

@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 
 /**
- * Data representation of an installed launchable application or game.
+ * Data representation of an installed launchable application, retro emulator, or game.
  */
 data class AppItem(
     val id: String,
@@ -14,6 +14,8 @@ data class AppItem(
     val iconBitmap: ImageBitmap?,
     val isGame: Boolean,
     val isMedia: Boolean,
+    val isEmulator: Boolean,
+    val systemTag: String,
     val accentColor: Color
 )
 

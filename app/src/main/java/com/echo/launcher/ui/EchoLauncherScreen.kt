@@ -1,8 +1,13 @@
 package com.echo.launcher.ui
 
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.SoundEffectConstants
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,9 +35,12 @@ import com.echo.launcher.data.AppRepository
 import com.echo.launcher.data.BatteryInfo
 import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.FocusZone
+import com.echo.launcher.data.GamepadLayout
+import com.echo.launcher.data.HandheldControllerManager
 import com.echo.launcher.data.LauncherTab
 import com.echo.launcher.ui.components.AllAppsModal
 import com.echo.launcher.ui.components.AmbientBackground
+import com.echo.launcher.ui.components.BootSequenceScreen
 import com.echo.launcher.ui.components.ConsoleFooter
 import com.echo.launcher.ui.components.GameCarousel
 import com.echo.launcher.ui.components.GameDetailsModal
@@ -42,15 +50,19 @@ import com.echo.launcher.ui.theme.ElectricCyan
 @Composable
 fun EchoLauncherScreen(
     batteryInfo: BatteryInfo,
-    onHandleKeyEvent: ((KeyEvent) -> Boolean) -> Unit = {}
+    onHandleKeyEvent: ((KeyEvent) -> Boolean) -> Unit = {},
+    onHandleMotionEvent: ((MotionEvent) -> Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val repository = remember { AppRepository(context) }
+    val controllerManager = remember { HandheldControllerManager() }
 
+    var isBooting by remember { mutableStateOf(true) }
     var allApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
     var selectedTab by remember { mutableStateOf(LauncherTab.GAMES) }
     var currentFocusZone by remember { mutableStateOf(FocusZone.CAROUSEL) }
+    var gamepadLayout by remember { mutableStateOf(GamepadLayout.XBOX) }
 
     var selectedGameIndex by remember { mutableIntStateOf(0) }
     var selectedMediaIndex by remember { mutableIntStateOf(0) }
@@ -62,13 +74,11 @@ fun EchoLauncherScreen(
 
     val focusRequester = remember { FocusRequester() }
 
-    // Load installed applications dynamically
     LaunchedEffect(Unit) {
         val loaded = repository.loadInstalledApps()
         allApps = loaded
     }
 
-    // Filter apps based on current tab
     val currentTabApps = remember(allApps, selectedTab) {
         when (selectedTab) {
             LauncherTab.GAMES -> {
@@ -98,9 +108,10 @@ fun EchoLauncherScreen(
         try { view.playSoundEffect(direction) } catch (_: Exception) {}
     }
 
-    // Intercept Back button so launcher NEVER exits
     BackHandler(enabled = true) {
-        if (isDetailsOpen) {
+        if (isBooting) {
+            isBooting = false
+        } else if (isDetailsOpen) {
             isDetailsOpen = false
             playClickSound()
         } else if (isAllAppsOpen) {
@@ -113,34 +124,39 @@ fun EchoLauncherScreen(
     fun handleKeyNavigation(nativeKeyCode: Int, isActionDown: Boolean): Boolean {
         if (!isActionDown) return false
 
+        // Any button skips the boot screen
+        if (isBooting) {
+            isBooting = false
+            playClickSound()
+            return true
+        }
+
         // Details Modal Key Handling
         if (isDetailsOpen) {
-            when (nativeKeyCode) {
-                KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    isDetailsOpen = false
-                    playClickSound()
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    activeApp?.let { repository.launchApp(it) }
-                    isDetailsOpen = false
-                    playClickSound()
-                    return true
-                }
+            if (controllerManager.isCancelKey(nativeKeyCode)) {
+                isDetailsOpen = false
+                playClickSound()
+                return true
+            }
+            if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                activeApp?.let { repository.launchApp(it) }
+                isDetailsOpen = false
+                playClickSound()
+                return true
             }
             return false
         }
 
-        // Quick All Apps Shortcut via (X) Button or Key X
-        if (nativeKeyCode == KeyEvent.KEYCODE_BUTTON_X || nativeKeyCode == KeyEvent.KEYCODE_X) {
+        // Quick All Apps Shortcut via (X) Button / SELECT
+        if (controllerManager.isDrawerKey(nativeKeyCode)) {
             isAllAppsOpen = !isAllAppsOpen
             if (isAllAppsOpen) currentFocusZone = FocusZone.ALL_APPS_MODAL
             playClickSound()
             return true
         }
 
-        // Options shortcut via (Y) Button or Key Y
-        if (nativeKeyCode == KeyEvent.KEYCODE_BUTTON_Y || nativeKeyCode == KeyEvent.KEYCODE_Y) {
+        // Options shortcut via (Y) Button / START / MENU
+        if (controllerManager.isOptionsKey(nativeKeyCode)) {
             if (activeApp != null && !isAllAppsOpen) {
                 isDetailsOpen = true
                 playClickSound()
@@ -149,12 +165,12 @@ fun EchoLauncherScreen(
         }
 
         // Bumper L1 / R1 tab switcher
-        if (nativeKeyCode == KeyEvent.KEYCODE_BUTTON_L1 || nativeKeyCode == KeyEvent.KEYCODE_Q || nativeKeyCode == KeyEvent.KEYCODE_PAGE_UP) {
+        if (controllerManager.isTabLeft(nativeKeyCode)) {
             selectedTab = LauncherTab.GAMES
             playNavSound(SoundEffectConstants.NAVIGATION_LEFT)
             return true
         }
-        if (nativeKeyCode == KeyEvent.KEYCODE_BUTTON_R1 || nativeKeyCode == KeyEvent.KEYCODE_E || nativeKeyCode == KeyEvent.KEYCODE_PAGE_DOWN) {
+        if (controllerManager.isTabRight(nativeKeyCode)) {
             selectedTab = LauncherTab.MEDIA
             playNavSound(SoundEffectConstants.NAVIGATION_RIGHT)
             return true
@@ -183,19 +199,21 @@ fun EchoLauncherScreen(
                     playNavSound(SoundEffectConstants.NAVIGATION_DOWN)
                     return true
                 }
-                KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    allApps.getOrNull(selectedModalIndex)?.let {
-                        repository.launchApp(it)
-                        isAllAppsOpen = false
-                        playClickSound()
+                else -> {
+                    if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                        allApps.getOrNull(selectedModalIndex)?.let {
+                            repository.launchApp(it)
+                            isAllAppsOpen = false
+                            playClickSound()
+                        }
+                        return true
                     }
-                    return true
-                }
-                KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    isAllAppsOpen = false
-                    currentFocusZone = FocusZone.DOCK
-                    playClickSound()
-                    return true
+                    if (controllerManager.isCancelKey(nativeKeyCode)) {
+                        isAllAppsOpen = false
+                        currentFocusZone = FocusZone.DOCK
+                        playClickSound()
+                        return true
+                    }
                 }
             }
             return false
@@ -220,10 +238,12 @@ fun EchoLauncherScreen(
                         playNavSound(SoundEffectConstants.NAVIGATION_DOWN)
                         return true
                     }
-                    KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        currentFocusZone = FocusZone.CAROUSEL
-                        playClickSound()
-                        return true
+                    else -> {
+                        if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                            currentFocusZone = FocusZone.CAROUSEL
+                            playClickSound()
+                            return true
+                        }
                     }
                 }
             }
@@ -258,12 +278,14 @@ fun EchoLauncherScreen(
                         playNavSound(SoundEffectConstants.NAVIGATION_DOWN)
                         return true
                     }
-                    KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        activeApp?.let {
-                            repository.launchApp(it)
-                            playClickSound()
+                    else -> {
+                        if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                            activeApp?.let {
+                                repository.launchApp(it)
+                                playClickSound()
+                            }
+                            return true
                         }
-                        return true
                     }
                 }
             }
@@ -285,18 +307,20 @@ fun EchoLauncherScreen(
                         playNavSound(SoundEffectConstants.NAVIGATION_UP)
                         return true
                     }
-                    KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        playClickSound()
-                        when (selectedDockIndex) {
-                            0 -> {
-                                isAllAppsOpen = true
-                                currentFocusZone = FocusZone.ALL_APPS_MODAL
+                    else -> {
+                        if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                            playClickSound()
+                            when (selectedDockIndex) {
+                                0 -> {
+                                    isAllAppsOpen = true
+                                    currentFocusZone = FocusZone.ALL_APPS_MODAL
+                                }
+                                1 -> repository.launchEchoUpdates()
+                                2 -> repository.launchWifiBtSettings()
+                                3 -> repository.launchSettings()
                             }
-                            1 -> repository.launchEchoUpdates()
-                            2 -> repository.launchWifiBtSettings()
-                            3 -> repository.launchSettings()
+                            return true
                         }
-                        return true
                     }
                 }
             }
@@ -315,6 +339,13 @@ fun EchoLauncherScreen(
         handleKeyNavigation(event.keyCode, event.action == KeyEvent.ACTION_DOWN)
     }
 
+    // Connect Anbernic analog stick and HAT axis events
+    onHandleMotionEvent { motionEvent ->
+        controllerManager.processMotionEvent(motionEvent) { directionCode ->
+            handleKeyNavigation(directionCode, isActionDown = true)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -325,7 +356,7 @@ fun EchoLauncherScreen(
                 handleKeyNavigation(keyEvent.nativeKeyEvent.keyCode, isDown)
             }
     ) {
-        // PS5-inspired dynamic radial ambient glow background
+        // PS5/Handheld dynamic radial ambient glow background with cybernetic grid
         AmbientBackground(targetAccentColor = activeAccentColor)
 
         Column(
@@ -346,7 +377,7 @@ fun EchoLauncherScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Center Horizontal Game Carousel
+            // Center Horizontal Game & Retro Emulator Carousel
             GameCarousel(
                 apps = currentTabApps,
                 selectedIndex = activeCarouselIndex,
@@ -367,12 +398,13 @@ fun EchoLauncherScreen(
                     playClickSound()
                     isDetailsOpen = true
                 },
-                currentFocusZone = currentFocusZone
+                currentFocusZone = currentFocusZone,
+                gamepadLayout = gamepadLayout
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Console Footer: System Dock + Controller Button Guide
+            // Console Footer: System Dock + Handheld Button Guide
             ConsoleFooter(
                 selectedActionIndex = selectedDockIndex,
                 onActionSelected = { index ->
@@ -429,5 +461,19 @@ fun EchoLauncherScreen(
                 playClickSound()
             }
         )
+
+        // Custom Console Boot Sequence
+        AnimatedVisibility(
+            visible = isBooting,
+            enter = fadeIn(),
+            exit = fadeOut(tween(400))
+        ) {
+            BootSequenceScreen(
+                onBootFinished = {
+                    isBooting = false
+                    playClickSound()
+                }
+            )
+        }
     }
 }

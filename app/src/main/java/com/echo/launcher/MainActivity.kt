@@ -2,7 +2,7 @@ package com.echo.launcher
 
 import android.os.Bundle
 import android.view.KeyEvent
-import android.view.View
+import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,6 +16,7 @@ import com.echo.launcher.ui.theme.EchoTheme
 class MainActivity : ComponentActivity() {
 
     private var keyEventListener: ((KeyEvent) -> Boolean)? = null
+    private var motionEventListener: ((MotionEvent) -> Boolean)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,6 +31,9 @@ class MainActivity : ComponentActivity() {
                     batteryInfo = batteryInfo.value,
                     onHandleKeyEvent = { listener ->
                         keyEventListener = listener
+                    },
+                    onHandleMotionEvent = { listener ->
+                        motionEventListener = listener
                     }
                 )
             }
@@ -70,6 +74,16 @@ class MainActivity : ComponentActivity() {
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * Intercept Anbernic, Retroid, and analog stick / HAT axis motion events.
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (motionEventListener?.invoke(event) == true) {
+            return true
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     /**

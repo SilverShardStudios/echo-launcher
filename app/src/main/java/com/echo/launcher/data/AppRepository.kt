@@ -52,15 +52,17 @@ class AppRepository(private val context: Context) {
 
         for ((index, resolveInfo) in resolveInfos.withIndex()) {
             val packageName = resolveInfo.activityInfo.packageName
-            // Skip our own launcher from the game carousel to avoid recursive launch
             if (packageName == myPackage) continue
 
             val activityName = resolveInfo.activityInfo.name
             val label = resolveInfo.loadLabel(pm)?.toString() ?: packageName
             val appInfo = resolveInfo.activityInfo.applicationInfo
 
-            val isGame = isGameApp(appInfo, packageName, label)
+            val emulatorClassification = detectEmulator(packageName, label)
+            val isEmulator = emulatorClassification != null
+            val isGame = isEmulator || isGameApp(appInfo, packageName, label)
             val isMedia = isMediaApp(appInfo, packageName, label)
+            val systemTag = emulatorClassification ?: if (isGame) "CONSOLE" else if (isMedia) "MEDIA" else "SYSTEM"
 
             var imageBitmap: androidx.compose.ui.graphics.ImageBitmap? = null
             var accentColor = defaultPalette[index % defaultPalette.size]
@@ -85,6 +87,8 @@ class AppRepository(private val context: Context) {
                     iconBitmap = imageBitmap,
                     isGame = isGame,
                     isMedia = isMedia,
+                    isEmulator = isEmulator,
+                    systemTag = systemTag,
                     accentColor = accentColor
                 )
             )
@@ -92,6 +96,31 @@ class AppRepository(private val context: Context) {
 
         apps.sortBy { it.label.lowercase() }
         apps
+    }
+
+    /**
+     * Enhanced detection for Anbernic, Retroid, and handheld retro emulators.
+     */
+    private fun detectEmulator(packageName: String, label: String): String? {
+        val p = packageName.lowercase()
+        val l = label.lowercase()
+        return when {
+            p.contains("retroarch") || l.contains("retroarch") -> "RETROARCH"
+            p.contains("drastic") || p.contains("melonds") || l.contains("drastic") || l.contains("melonds") -> "NINTENDO DS"
+            p.contains("citra") || p.contains("mandarine") || p.contains("lime3ds") || l.contains("citra") -> "NINTENDO 3DS"
+            p.contains("dolphin") || l.contains("dolphin") -> "GAMECUBE / WII"
+            p.contains("ppsspp") || l.contains("ppsspp") -> "PSP"
+            p.contains("aethersx2") || p.contains("nethersx2") || p.contains("play!") -> "PS2"
+            p.contains("duckstation") || p.contains("epsxe") || p.contains("swanstation") -> "PS1"
+            p.contains("yuzu") || p.contains("suyu") || p.contains("sudachi") || p.contains("skyline") || p.contains("strato") -> "STANDALONE EMU"
+            p.contains("vita3k") -> "PS VITA"
+            p.contains("redream") || p.contains("flycast") -> "DREAMCAST"
+            p.contains("mupen") || p.contains("m64plus") -> "N64"
+            p.contains("scummvm") -> "RETRO PC"
+            p.contains("daijisho") || p.contains("beacon") || p.contains("pegasus") || p.contains("emulationstation") -> "FRONTEND"
+            p.contains("moonlight") || p.contains("steamlink") || p.contains("geforce") || p.contains("parsec") || p.contains("psplay") -> "STREAMING"
+            else -> null
+        }
     }
 
     private fun isGameApp(appInfo: ApplicationInfo, packageName: String, label: String): Boolean {
@@ -109,16 +138,9 @@ class AppRepository(private val context: Context) {
         return lowered.contains("game") ||
                 lowered.contains("steam") ||
                 lowered.contains("emulator") ||
-                lowered.contains("retroarch") ||
-                lowered.contains("dolphin") ||
-                lowered.contains("citra") ||
-                lowered.contains("yuzu") ||
-                lowered.contains("suyu") ||
+                lowered.contains("arcade") ||
                 lowered.contains("playstation") ||
-                lowered.contains("xbox") ||
-                lowered.contains("geforce") ||
-                lowered.contains("moonlight") ||
-                lowered.contains("arcade")
+                lowered.contains("xbox")
     }
 
     private fun isMediaApp(appInfo: ApplicationInfo, packageName: String, label: String): Boolean {
@@ -160,9 +182,6 @@ class AppRepository(private val context: Context) {
         return bitmap
     }
 
-    /**
-     * Extracts a vibrant, colorful accent from the app icon for the PS5-inspired radial ambient glow.
-     */
     private fun extractDominantColor(bitmap: Bitmap, fallback: Color): Color {
         val w = bitmap.width
         val h = bitmap.height
@@ -173,24 +192,21 @@ class AppRepository(private val context: Context) {
 
         val stepX = (w / 8).coerceAtLeast(1)
         val stepY = (h / 8).coerceAtLeast(1)
-
         val hsl = FloatArray(3)
 
         for (x in stepX / 2 until w step stepX) {
             for (y in stepY / 2 until h step stepY) {
                 val pixel = bitmap.getPixel(x, y)
                 val alpha = (pixel ushr 24) and 0xFF
-                if (alpha < 100) continue // Skip transparent pixels
+                if (alpha < 100) continue
 
                 ColorUtils.colorToHSL(pixel, hsl)
                 val saturation = hsl[1]
                 val lightness = hsl[2]
 
-                // Discard near-black or near-white pixels
                 if (lightness < 0.15f || lightness > 0.88f) continue
                 if (saturation < 0.20f) continue
 
-                // Score favoring high saturation and balanced luminance
                 val score = saturation * 2.0f + (1.0f - kotlin.math.abs(lightness - 0.5f))
                 if (score > maxScore) {
                     maxScore = score
@@ -238,7 +254,6 @@ class AppRepository(private val context: Context) {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            // Fallback to wireless settings or main settings
             try {
                 val fallback = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
