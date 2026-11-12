@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#0B0D12"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- Outer concentric ring -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3"
+        android:strokeAlpha="0.4"
+        android:pathData="M54,24 A30,30 0 1,0 54,84 A30,30 0 1,0 54,24" />
+    <!-- Inner glowing ring -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="4"
+        android:pathData="M54,34 A20,20 0 1,0 54,74 A20,20 0 1,0 54,34" />
+    <!-- Geometric ECHO core bars -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,42 h20 v4 h-16 v6 h12 v4 h-12 v6 h16 v4 h-20 z" />
+</vector>

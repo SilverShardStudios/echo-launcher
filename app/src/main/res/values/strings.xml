@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">ECHO OS</string>
+    <string name="tab_games">Games</string>
+    <string name="tab_media">Media</string>
+    <string name="play">Play</string>
+    <string name="action_all_apps">All Apps</string>
+    <string name="action_echo_updates">ECHO Updates</string>
+    <string name="action_wifi_bt">Wi-Fi &amp; BT</string>
+    <string name="action_settings">Settings</string>
+</resources>
