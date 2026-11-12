@@ -222,7 +222,7 @@ class AppRepository(private val context: Context) {
 
     fun launchEchoUpdates() {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/echo-os/launcher/releases")).apply {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/SilverShardStudios/echo-launcher/releases")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
