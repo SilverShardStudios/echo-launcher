@@ -1,11 +1,14 @@
 package com.echo.launcher.data
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 
 /**
  * Data representation of an installed launchable application, retro emulator, or game.
+ * Marked @Immutable so Jetpack Compose skips unnecessary card recompositions during scrolling.
  */
+@Immutable
 data class AppItem(
     val id: String,
     val packageName: String,

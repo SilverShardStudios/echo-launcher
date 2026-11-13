@@ -1,5 +1,11 @@
 package com.echo.launcher
 
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -18,11 +24,41 @@ class MainActivity : ComponentActivity() {
     private var keyEventListener: ((KeyEvent) -> Boolean)? = null
     private var motionEventListener: ((MotionEvent) -> Boolean)? = null
 
+    /**
+     * Listens for screen power-on / wake events while ECHO OS is running so that
+     * turning the console off and back on immediately dismisses the Android lock screen
+     * and shows ECHO OS without any Android login prompt.
+     */
+    private val wakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON,
+                Intent.ACTION_USER_PRESENT -> {
+                    bypassAndroidLockScreen()
+                    hideSystemBars()
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Lock to immersive full-screen console mode
+        // Bypass Android lock/login screen immediately on cold boot or power button wake
+        bypassAndroidLockScreen()
         setupImmersiveMode()
+        enableHighRefreshRate()
+
+        // Register screen wake receiver
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(wakeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(wakeReceiver, filter)
+        }
 
         setContent {
             EchoTheme {
@@ -40,8 +76,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(wakeReceiver)
+        } catch (_: Exception) {}
+    }
+
     override fun onResume() {
         super.onResume()
+        bypassAndroidLockScreen()
         hideSystemBars()
     }
 
@@ -52,10 +96,59 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Shows ECHO OS directly over the Android Keyguard / Lock Screen and dismisses it
+     * so powering on the console goes straight into ECHO OS.
+     */
+    @Suppress("DEPRECATION")
+    private fun bypassAndroidLockScreen() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+                val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                keyguardManager?.requestDismissKeyguard(this, null)
+            } else {
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Requests the highest refresh rate supported by the display (60Hz / 90Hz / 120Hz)
+     * for zero-lag input and scrolling.
+     */
+    private fun enableHighRefreshRate() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    this.display
+                } else {
+                    @Suppress("DEPRECATION")
+                    windowManager.defaultDisplay
+                }
+                val supportedModes = display?.supportedModes ?: return
+                val bestMode = supportedModes.maxByOrNull { it.refreshRate }
+                if (bestMode != null) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = bestMode.modeId
+                    window.attributes = params
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun setupImmersiveMode() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.attributes.layoutInDisplayCutoutMode =
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         hideSystemBars()
     }
 
@@ -86,9 +179,6 @@ class MainActivity : ComponentActivity() {
         return super.onGenericMotionEvent(event)
     }
 
-    /**
-     * Pressing back on the console launcher should never exit the launcher home screen.
-     */
     @Deprecated("Deprecated in Java", ReplaceWith("super.onBackPressed()"))
     override fun onBackPressed() {
         // Handled by BackHandler in Compose; never exit launcher

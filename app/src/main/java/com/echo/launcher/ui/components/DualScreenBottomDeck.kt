@@ -8,7 +8,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,11 +21,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,8 +44,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
-import com.echo.launcher.ui.theme.BadgeBlue
-import com.echo.launcher.ui.theme.CarbonDark
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.ObsidianBackground
 import com.echo.launcher.ui.theme.PlatinumWhite
@@ -54,11 +53,12 @@ import com.echo.launcher.ui.theme.SurfaceBorder
 import com.echo.launcher.ui.theme.SurfaceCard
 import com.echo.launcher.ui.theme.SurfaceCardElevated
 import com.echo.launcher.ui.theme.TextMuted
-import com.echo.launcher.ui.theme.TextSecondary
 
 @Composable
 fun DualScreenBottomDeck(
     apps: List<AppItem>,
+    selectedIndex: Int = 0,
+    onSelectIndex: ((Int) -> Unit)? = null,
     onLaunch: (AppItem) -> Unit,
     onToggleAllApps: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -67,12 +67,20 @@ fun DualScreenBottomDeck(
 ) {
     val context = LocalContext.current
     var perfMode by remember { mutableStateOf("TURBO") }
+    val deckListState = rememberLazyListState()
+    val focusedApp = apps.getOrNull(selectedIndex)
+
+    LaunchedEffect(selectedIndex) {
+        if (apps.isNotEmpty() && selectedIndex in apps.indices) {
+            deckListState.animateScrollToItem(selectedIndex.coerceAtLeast(0))
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBackground)
-            .padding(horizontal = 24.dp, vertical = 12.dp)
+            .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -95,7 +103,7 @@ fun DualScreenBottomDeck(
                             .background(StatusGreen)
                     )
                     Text(
-                        text = "ECHO COMMAND DECK // LOWER DISPLAY",
+                        text = "RG DS COMMAND DECK // LOWER TOUCH DISPLAY",
                         color = ElectricCyan,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -133,23 +141,100 @@ fun DualScreenBottomDeck(
                 }
             }
 
-            // Quick App Grid / Mini Shelf
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Active Game Quick-Launch Banner on Bottom Touch Screen
+            if (focusedApp != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SurfaceCardElevated)
+                        .border(1.dp, ElectricCyan.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                        .clickable { onLaunch(focusedApp) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (focusedApp.iconBitmap != null) {
+                            Image(
+                                bitmap = focusedApp.iconBitmap,
+                                contentDescription = focusedApp.label,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = focusedApp.label,
+                                color = PureWhite,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${focusedApp.systemTag} • TAP TO LAUNCH ON UPPER SCREEN",
+                                color = ElectricCyan,
+                                fontSize = 9.5.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ElectricCyan)
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = "▶ LAUNCH",
+                            color = Color.Black,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+            }
+
+            // Touch App Matrix
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "QUICK LAUNCH MATRIX",
+                    text = "TOUCH LAUNCH MATRIX",
                     color = TextMuted,
-                    fontSize = 10.sp,
+                    fontSize = 9.5.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.8.sp
                 )
 
                 LazyRow(
+                    state = deckListState,
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(apps.take(16)) { app ->
-                        QuickDeckAppCard(app = app, onClick = { onLaunch(app) })
+                    itemsIndexed(
+                        items = apps,
+                        key = { _, app -> "deck_${app.id}" },
+                        contentType = { _, _ -> "deck_card" }
+                    ) { idx, app ->
+                        val isCurrent = idx == selectedIndex
+                        QuickDeckAppCard(
+                            app = app,
+                            isSelected = isCurrent,
+                            onClick = {
+                                if (isCurrent || onSelectIndex == null) {
+                                    onLaunch(app)
+                                } else {
+                                    onSelectIndex(idx)
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -160,7 +245,6 @@ fun DualScreenBottomDeck(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Quick Buttons
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DeckActionPill(
                         label = "All Apps",
@@ -174,7 +258,7 @@ fun DualScreenBottomDeck(
                     )
                     if (onToggleDualScreenMode != null) {
                         DeckActionPill(
-                            label = "Dual Screen",
+                            label = "1x / 2x Screen",
                             icon = "⧉",
                             accentColor = ElectricCyan,
                             onClick = onToggleDualScreenMode
@@ -182,7 +266,6 @@ fun DualScreenBottomDeck(
                     }
                 }
 
-                // Right Hardware Shortcuts
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -223,16 +306,20 @@ fun DualScreenBottomDeck(
 @Composable
 private fun QuickDeckAppCard(
     app: AppItem,
+    isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val borderCol = if (isSelected) ElectricCyan else SurfaceBorder
+    val bgCol = if (isSelected) SurfaceCardElevated else SurfaceCard
+
     Column(
         modifier = Modifier
-            .width(82.dp)
+            .width(78.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceCard)
-            .border(1.dp, SurfaceBorder, RoundedCornerShape(14.dp))
+            .background(bgCol)
+            .border(if (isSelected) 1.8.dp else 1.dp, borderCol, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(8.dp),
+            .padding(7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -241,14 +328,14 @@ private fun QuickDeckAppCard(
                 bitmap = app.iconBitmap,
                 contentDescription = app.label,
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(42.dp)
                     .clip(RoundedCornerShape(10.dp)),
                 contentScale = ContentScale.Fit
             )
         } else {
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(42.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(app.accentColor.copy(alpha = 0.25f)),
                 contentAlignment = Alignment.Center
@@ -256,7 +343,7 @@ private fun QuickDeckAppCard(
                 Text(
                     text = app.label.take(2).uppercase(),
                     color = PureWhite,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -266,9 +353,9 @@ private fun QuickDeckAppCard(
 
         Text(
             text = app.label,
-            color = PlatinumWhite,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
+            color = if (isSelected) ElectricCyan else PlatinumWhite,
+            fontSize = 9.5.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -288,7 +375,7 @@ private fun DeckActionPill(
             .background(SurfaceCardElevated)
             .border(1.dp, SurfaceBorder, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -309,13 +396,13 @@ private fun DeckIconAction(
 ) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(32.dp)
             .clip(CircleShape)
             .background(SurfaceCardElevated)
             .border(1.dp, SurfaceBorder, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = icon, fontSize = 13.sp)
+        Text(text = icon, fontSize = 12.sp)
     }
 }

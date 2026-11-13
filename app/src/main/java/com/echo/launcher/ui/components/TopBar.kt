@@ -60,6 +60,8 @@ fun TopBar(
     onTabSelected: (LauncherTab) -> Unit,
     currentFocusZone: FocusZone,
     powerInfo: PowerInfo,
+    isDualScreenMode: Boolean = false,
+    onToggleDualScreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var currentTimeString by remember { mutableStateOf(getCurrentTimeString()) }
@@ -67,22 +69,22 @@ fun TopBar(
     LaunchedEffect(Unit) {
         while (true) {
             currentTimeString = getCurrentTimeString()
-            delay(10000)
+            delay(15000)
         }
     }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .padding(horizontal = 42.dp), // TV-safe margins for living room displays
+            .height(58.dp)
+            .padding(horizontal = 24.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Left: Profile Badge + Geometric ECHO Wordmark + Tab Switcher
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             UserProfileBadge()
 
@@ -95,7 +97,6 @@ fun TopBar(
 
             EchoConsoleMark()
 
-            // Living Room Console Tab Switcher [L1] Games | Media [R1]
             ConsoleTabSwitcher(
                 selectedTab = selectedTab,
                 onTabSelected = onTabSelected,
@@ -103,28 +104,28 @@ fun TopBar(
             )
         }
 
-        // Right: Video Out Badge + Controller Status + Network + Power + Digital Clock
+        // Right: RG DS / Dual Screen Toggle + Controller Status + Network + Power + Digital Clock
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // TV Output Signal Indicator
-            DisplayOutputBadge()
+            if (onToggleDualScreen != null) {
+                DualScreenToggleBadge(
+                    isDualScreenMode = isDualScreenMode,
+                    onClick = onToggleDualScreen
+                )
+            }
 
-            // Active Gamepad Badge
             ControllerStatusBadge()
 
-            // Network (Ethernet LAN / Wi-Fi)
             NetworkSignalIcon()
 
-            // Home Console Power / Battery Indicator
             PowerIndicator(powerInfo = powerInfo)
 
-            // Digital Clock
             Text(
                 text = currentTimeString,
                 color = PlatinumWhite,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
                 letterSpacing = 0.5.sp
@@ -134,26 +135,48 @@ fun TopBar(
 }
 
 @Composable
-private fun UserProfileBadge() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+private fun DualScreenToggleBadge(
+    isDualScreenMode: Boolean,
+    onClick: () -> Unit
+) {
+    val bgColor = if (isDualScreenMode) ElectricCyan.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f)
+    val borderColor = if (isDualScreenMode) ElectricCyan else SurfaceBorder
+    val textColor = if (isDualScreenMode) ElectricCyan else TextMuted
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(SurfaceCard)
-                .border(1.5.dp, ElectricCyan.copy(alpha = 0.7f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "P1",
-                color = ElectricCyan,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Black
-            )
-        }
+        Text(
+            text = if (isDualScreenMode) "⧉ RG DS • 2X SCREEN" else "⧉ 1X SCREEN",
+            color = textColor,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+@Composable
+private fun UserProfileBadge() {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(SurfaceCard)
+            .border(1.5.dp, ElectricCyan.copy(alpha = 0.7f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "P1",
+            color = ElectricCyan,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black
+        )
     }
 }
 
@@ -161,14 +184,14 @@ private fun UserProfileBadge() {
 private fun EchoConsoleMark() {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
             text = "ECHO",
             color = PureWhite,
-            fontSize = 20.sp,
+            fontSize = 19.sp,
             fontWeight = FontWeight.Black,
-            letterSpacing = 3.sp
+            letterSpacing = 2.5.sp
         )
         Box(
             modifier = Modifier
@@ -178,7 +201,7 @@ private fun EchoConsoleMark() {
                 .padding(horizontal = 5.dp, vertical = 2.dp)
         ) {
             Text(
-                text = "SYSTEM",
+                text = "OS",
                 color = ElectricCyan,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -196,7 +219,7 @@ private fun ConsoleTabSwitcher(
 ) {
     val containerBorderColor by animateColorAsState(
         targetValue = if (isFocused) ElectricCyan else SurfaceBorder,
-        animationSpec = tween(200),
+        animationSpec = tween(150),
         label = "TabFocusBorder"
     )
 
@@ -205,7 +228,7 @@ private fun ConsoleTabSwitcher(
             .clip(RoundedCornerShape(22.dp))
             .background(SurfaceCard.copy(alpha = 0.88f))
             .border(1.2.dp, containerBorderColor, RoundedCornerShape(22.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         BumperHint(text = "L1")
@@ -242,16 +265,8 @@ private fun TabItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor by animateColorAsState(
-        targetValue = if (isSelected) ElectricCyan.copy(alpha = 0.22f) else Color.Transparent,
-        animationSpec = tween(200),
-        label = "TabBg"
-    )
-    val textColor by animateColorAsState(
-        targetValue = if (isSelected) ElectricCyan else TextMuted,
-        animationSpec = tween(200),
-        label = "TabText"
-    )
+    val bgColor = if (isSelected) ElectricCyan.copy(alpha = 0.22f) else Color.Transparent
+    val textColor = if (isSelected) ElectricCyan else TextMuted
 
     Box(
         modifier = Modifier
@@ -262,13 +277,13 @@ private fun TabItem(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 14.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = title,
             color = textColor,
-            fontSize = 13.5.sp,
+            fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             letterSpacing = 0.5.sp
         )
@@ -282,32 +297,13 @@ private fun BumperHint(text: String) {
             .clip(RoundedCornerShape(6.dp))
             .background(Color.White.copy(alpha = 0.08f))
             .border(0.8.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.5.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
         Text(
             text = text,
             color = TextMuted,
-            fontSize = 9.5.sp,
+            fontSize = 9.sp,
             fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-private fun DisplayOutputBadge() {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color.White.copy(alpha = 0.06f))
-            .border(0.8.dp, SurfaceBorder, RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.5.dp)
-    ) {
-        Text(
-            text = "HDMI • 60Hz",
-            color = TextMuted,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace
         )
     }
 }
@@ -332,7 +328,7 @@ private fun ControllerStatusBadge() {
         Text(
             text = "PAD 1",
             color = TextSecondary,
-            fontSize = 10.5.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -368,13 +364,11 @@ private fun NetworkSignalIcon() {
 @Composable
 private fun PowerIndicator(powerInfo: PowerInfo) {
     if (powerInfo.isHomeConsolePower || powerInfo.isPluggedAC) {
-        // Home Console Wall AC Power
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Canvas(modifier = Modifier.size(width = 12.dp, height = 14.dp)) {
-                // Lightning bolt power icon
                 val bolt = Path().apply {
                     moveTo(size.width * 0.6f, 0f)
                     lineTo(size.width * 0.15f, size.height * 0.55f)
@@ -389,12 +383,11 @@ private fun PowerIndicator(powerInfo: PowerInfo) {
             Text(
                 text = "AC",
                 color = StatusGreen,
-                fontSize = 11.5.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
         }
     } else {
-        // Fallback battery indicator if running on un-plugged portable unit
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)

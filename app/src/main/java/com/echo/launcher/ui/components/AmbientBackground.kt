@@ -3,15 +3,15 @@ package com.echo.launcher.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.echo.launcher.ui.theme.ObsidianBackground
 
 @Composable
@@ -21,71 +21,55 @@ fun AmbientBackground(
 ) {
     val animatedAccentColor by animateColorAsState(
         targetValue = targetAccentColor,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
         label = "AmbientGlowTransition"
     )
 
-    Canvas(modifier = modifier.fillMaxSize()) {
-        // Base dark obsidian canvas
-        drawRect(color = ObsidianBackground)
+    Spacer(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val centerGlow = Offset(x = size.width * 0.50f, y = size.height * 0.42f)
+                val glowRadius = (size.width * 0.60f).coerceAtLeast(1f)
 
-        val centerGlow = Offset(x = size.width * 0.50f, y = size.height * 0.42f)
-        val glowRadius = size.width * 0.60f
+                val radialBrush = Brush.radialGradient(
+                    colors = listOf(
+                        animatedAccentColor.copy(alpha = 0.30f),
+                        animatedAccentColor.copy(alpha = 0.11f),
+                        Color.Transparent
+                    ),
+                    center = centerGlow,
+                    radius = glowRadius
+                )
 
-        // Dynamic radial ambient glow tracking focused game/emulator
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    animatedAccentColor.copy(alpha = 0.34f),
-                    animatedAccentColor.copy(alpha = 0.14f),
-                    animatedAccentColor.copy(alpha = 0.04f),
-                    Color.Transparent
-                ),
-                center = centerGlow,
-                radius = glowRadius
-            ),
-            radius = glowRadius,
-            center = centerGlow
-        )
+                val topWash = Brush.verticalGradient(
+                    colors = listOf(
+                        animatedAccentColor.copy(alpha = 0.07f),
+                        Color.Transparent
+                    ),
+                    startY = 0f,
+                    endY = size.height * 0.32f
+                )
 
-        // Handheld Cybernetic Grid Lines (subtle, non-distracting)
-        val gridStep = 56.dp.toPx()
-        val gridAlpha = 0.035f
-        val gridColor = animatedAccentColor.copy(alpha = gridAlpha)
+                val bottomVignette = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        ObsidianBackground.copy(alpha = 0.90f)
+                    ),
+                    startY = size.height * 0.68f,
+                    endY = size.height
+                )
 
-        // Subtle horizontal guide rails
-        for (y in 0..(size.height / gridStep).toInt()) {
-            val yPos = y * gridStep
-            drawLine(
-                color = gridColor,
-                start = Offset(0f, yPos),
-                end = Offset(size.width, yPos),
-                strokeWidth = 1f
-            )
-        }
-
-        // Top specular wash
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    animatedAccentColor.copy(alpha = 0.08f),
-                    Color.Transparent
-                ),
-                startY = 0f,
-                endY = size.height * 0.35f
-            )
-        )
-
-        // Bottom cinematic vignette
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    ObsidianBackground.copy(alpha = 0.88f)
-                ),
-                startY = size.height * 0.68f,
-                endY = size.height
-            )
-        )
-    }
+                onDrawBehind {
+                    drawRect(color = ObsidianBackground)
+                    drawCircle(
+                        brush = radialBrush,
+                        radius = glowRadius,
+                        center = centerGlow
+                    )
+                    drawRect(brush = topWash)
+                    drawRect(brush = bottomVignette)
+                }
+            }
+    )
 }

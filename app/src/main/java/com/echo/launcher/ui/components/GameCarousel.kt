@@ -1,9 +1,8 @@
 package com.echo.launcher.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -36,12 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
@@ -66,6 +65,7 @@ import com.echo.launcher.ui.theme.SurfaceCard
 import com.echo.launcher.ui.theme.SurfaceCardElevated
 import com.echo.launcher.ui.theme.TextMuted
 import com.echo.launcher.ui.theme.TextSecondary
+import kotlin.math.abs
 
 @Composable
 fun GameCarousel(
@@ -82,18 +82,22 @@ fun GameCarousel(
     val screenWidth = configuration.screenWidthDp.dp
     val screenHeight = configuration.screenHeightDp.dp
 
-    // Responsive sizing for Anbernic 4:3, 1:1 (RG Cube) and 16:9 displays
+    // Responsive sizing for Anbernic RG DS, 4:3, 1:1 (RG Cube) and 16:9 displays
     val isCompactScreen = screenHeight < 500.dp
-    val cardBaseWidth = if (isCompactScreen) 146.dp else 168.dp
-    val cardBaseHeight = if (isCompactScreen) 146.dp else 168.dp
+    val cardBaseWidth = if (isCompactScreen) 136.dp else 164.dp
+    val cardBaseHeight = if (isCompactScreen) 136.dp else 164.dp
     val lazyListState = rememberLazyListState()
 
     LaunchedEffect(selectedIndex, apps.size) {
         if (apps.isNotEmpty() && selectedIndex in apps.indices) {
-            lazyListState.animateScrollToItem(
-                index = selectedIndex,
-                scrollOffset = -((screenWidth.value / 2) - (cardBaseWidth.value / 2)).toInt()
-            )
+            val targetOffset = -((screenWidth.value / 2f) - (cardBaseWidth.value / 2f)).toInt()
+            val firstVisible = lazyListState.firstVisibleItemIndex
+            // Instant snap if jumping far, smooth scroll for single-step D-pad movement
+            if (abs(selectedIndex - firstVisible) > 4) {
+                lazyListState.scrollToItem(selectedIndex, targetOffset)
+            } else {
+                lazyListState.animateScrollToItem(selectedIndex, targetOffset)
+            }
         }
     }
 
@@ -108,17 +112,20 @@ fun GameCarousel(
         if (apps.isEmpty()) {
             EmptyCarouselState()
         } else {
-            // Horizontal LazyRow Carousel
             LazyRow(
                 state = lazyListState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (isCompactScreen) 190.dp else 222.dp),
+                    .height(if (isCompactScreen) 174.dp else 214.dp),
                 contentPadding = PaddingValues(horizontal = screenWidth / 2 - cardBaseWidth / 2),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                itemsIndexed(apps, key = { _, item -> item.id }) { index, item ->
+                itemsIndexed(
+                    items = apps,
+                    key = { _, item -> item.id },
+                    contentType = { _, _ -> "game_card" }
+                ) { index, item ->
                     val isSelected = index == selectedIndex
                     ConsoleGameCard(
                         app = item,
@@ -137,9 +144,8 @@ fun GameCarousel(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Metadata Hero Section
             if (activeApp != null) {
                 ConsoleGameHero(
                     app = activeApp,
@@ -162,37 +168,58 @@ private fun ConsoleGameCard(
     cardHeight: Dp,
     onClick: () -> Unit
 ) {
-    val targetScale = if (isSelected) 1.12f else 0.94f
+    val targetScale = if (isSelected) 1.10f else 0.94f
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
         label = "ConsoleCardScale"
     )
 
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isSelected && isCarouselFocused -> SurfaceBorderFocused
-            isSelected -> SurfaceBorderFocused.copy(alpha = 0.5f)
-            else -> SurfaceBorder
-        },
-        animationSpec = tween(160),
-        label = "ConsoleCardBorder"
-    )
+    val borderColor = when {
+        isSelected && isCarouselFocused -> SurfaceBorderFocused
+        isSelected -> SurfaceBorderFocused.copy(alpha = 0.55f)
+        else -> SurfaceBorder
+    }
 
-    val elevation = if (isSelected) 18.dp else 2.dp
+    val cardShape = remember { RoundedCornerShape(22.dp) }
 
     Box(
         modifier = Modifier
             .width(cardWidth)
             .height(cardHeight)
-            .scale(animatedScale)
-            .shadow(elevation, shape = RoundedCornerShape(22.dp), spotColor = ElectricCyan)
-            .clip(RoundedCornerShape(22.dp))
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
+            .clip(cardShape)
             .background(SurfaceCard)
-            .border(if (isSelected) 2.5.dp else 1.dp, borderColor, RoundedCornerShape(22.dp))
+            .drawWithCache {
+                val radialBrush = Brush.radialGradient(
+                    colors = listOf(
+                        app.accentColor.copy(alpha = if (isSelected) 0.32f else 0.08f),
+                        CarbonDark
+                    ),
+                    center = Offset(size.width / 2f, size.height * 0.40f),
+                    radius = (size.width * 0.8f).coerceAtLeast(1f)
+                )
+                val specLine = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        SpecularHighlight,
+                        Color.Transparent
+                    )
+                )
+                onDrawBehind {
+                    drawRect(brush = radialBrush)
+                    drawLine(
+                        brush = specLine,
+                        start = Offset(size.width * 0.15f, 1f),
+                        end = Offset(size.width * 0.85f, 1f),
+                        strokeWidth = 1.5.dp.toPx()
+                    )
+                }
+            }
+            .border(if (isSelected) 2.5.dp else 1.dp, borderColor, cardShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -200,46 +227,19 @@ private fun ConsoleGameCard(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val radialBrush = Brush.radialGradient(
-                colors = listOf(
-                    app.accentColor.copy(alpha = if (isSelected) 0.32f else 0.08f),
-                    CarbonDark
-                ),
-                center = Offset(size.width / 2f, size.height * 0.40f),
-                radius = size.width * 0.8f
-            )
-            drawRect(brush = radialBrush)
-
-            // Top specular highlight line
-            drawLine(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        SpecularHighlight,
-                        Color.Transparent
-                    )
-                ),
-                start = Offset(size.width * 0.15f, 1f),
-                end = Offset(size.width * 0.85f, 1f),
-                strokeWidth = 1.5.dp.toPx()
-            )
-        }
-
-        // App / Game / Emulator Icon
         if (app.iconBitmap != null) {
             Image(
                 bitmap = app.iconBitmap,
                 contentDescription = app.label,
                 modifier = Modifier
-                    .size(88.dp)
+                    .size(84.dp)
                     .clip(RoundedCornerShape(18.dp)),
                 contentScale = ContentScale.Fit
             )
         } else {
             Box(
                 modifier = Modifier
-                    .size(78.dp)
+                    .size(76.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(app.accentColor.copy(alpha = 0.25f)),
                 contentAlignment = Alignment.Center
@@ -247,19 +247,18 @@ private fun ConsoleGameCard(
                 Text(
                     text = app.label.take(2).uppercase(),
                     color = PureWhite,
-                    fontSize = 26.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        // Top-left Hardware Tag / Badge
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(8.dp)
                 .clip(RoundedCornerShape(5.dp))
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(Color.Black.copy(alpha = 0.60f))
                 .border(0.6.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(5.dp))
                 .padding(horizontal = 5.dp, vertical = 2.dp)
         ) {
@@ -272,7 +271,6 @@ private fun ConsoleGameCard(
             )
         }
 
-        // Active bottom dot
         if (isSelected) {
             Box(
                 modifier = Modifier
@@ -299,13 +297,12 @@ private fun ConsoleGameHero(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // Game Title
         Text(
             text = app.label,
             color = PlatinumWhite,
-            fontSize = 21.sp,
+            fontSize = 20.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -314,7 +311,6 @@ private fun ConsoleGameHero(
             modifier = Modifier.padding(horizontal = 32.dp)
         )
 
-        // Metadata Subtitle Line
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -341,7 +337,6 @@ private fun ConsoleGameHero(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // Dual Action Buttons: [ ▶ Play ] and [ ⋯ Options ]
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -368,17 +363,12 @@ private fun PlayPillButton(
 ) {
     val glowColor by animateColorAsState(
         targetValue = if (isCarouselFocused) ElectricCyan else Color.Transparent,
-        animationSpec = tween(200),
+        animationSpec = tween(150),
         label = "PlayGlow"
     )
 
     Box(
         modifier = Modifier
-            .shadow(
-                elevation = if (isCarouselFocused) 12.dp else 2.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = ElectricCyan
-            )
             .clip(RoundedCornerShape(24.dp))
             .background(PureWhite)
             .border(2.dp, glowColor, RoundedCornerShape(24.dp))
@@ -482,7 +472,7 @@ private fun OptionsPillButton(
 private fun EmptyCarouselState() {
     Column(
         modifier = Modifier
-            .height(180.dp)
+            .height(170.dp)
             .fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center

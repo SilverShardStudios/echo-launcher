@@ -15,12 +15,21 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.ColorUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 class AppRepository(private val context: Context) {
+
+    companion object {
+        // Static in-memory cache so icons & dominant colors are never re-decoded on resume or tab switch
+        @Volatile
+        private var cachedAppList: List<AppItem>? = null
+        private val iconCache = ConcurrentHashMap<String, Pair<ImageBitmap, Color>>()
+    }
 
     private val defaultPalette = listOf(
         Color(0xFF00E5FF), // Electric Cyan
@@ -31,7 +40,13 @@ class AppRepository(private val context: Context) {
         Color(0xFF2979FF)  // Azure Blue
     )
 
-    suspend fun loadInstalledApps(): List<AppItem> = withContext(Dispatchers.IO) {
+    fun getCachedApps(): List<AppItem>? = cachedAppList
+
+    suspend fun loadInstalledApps(forceRefresh: Boolean = false): List<AppItem> = withContext(Dispatchers.IO) {
+        if (!forceRefresh) {
+            cachedAppList?.let { if (it.isNotEmpty()) return@withContext it }
+        }
+
         val pm = context.packageManager
         val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
@@ -48,13 +63,14 @@ class AppRepository(private val context: Context) {
         }
 
         val myPackage = context.packageName
-        val apps = mutableListOf<AppItem>()
+        val apps = ArrayList<AppItem>(resolveInfos.size)
 
         for ((index, resolveInfo) in resolveInfos.withIndex()) {
             val packageName = resolveInfo.activityInfo.packageName
             if (packageName == myPackage) continue
 
             val activityName = resolveInfo.activityInfo.name
+            val appId = "$packageName/$activityName"
             val label = resolveInfo.loadLabel(pm)?.toString() ?: packageName
             val appInfo = resolveInfo.activityInfo.applicationInfo
 
@@ -64,23 +80,32 @@ class AppRepository(private val context: Context) {
             val isMedia = isMediaApp(appInfo, packageName, label)
             val systemTag = emulatorClassification ?: if (isGame) "CONSOLE" else if (isMedia) "MEDIA" else "SYSTEM"
 
-            var imageBitmap: androidx.compose.ui.graphics.ImageBitmap? = null
+            var imageBitmap: ImageBitmap? = null
             var accentColor = defaultPalette[index % defaultPalette.size]
 
-            try {
-                val iconDrawable = resolveInfo.loadIcon(pm)
-                val bitmap = drawableToBitmap(iconDrawable)
-                if (bitmap != null) {
-                    imageBitmap = bitmap.asImageBitmap()
-                    accentColor = extractDominantColor(bitmap, accentColor)
+            val cachedIcon = iconCache[appId]
+            if (cachedIcon != null) {
+                imageBitmap = cachedIcon.first
+                accentColor = cachedIcon.second
+            } else {
+                try {
+                    val iconDrawable = resolveInfo.loadIcon(pm)
+                    val bitmap = drawableToBitmap(iconDrawable)
+                    if (bitmap != null) {
+                        val composeBmp = bitmap.asImageBitmap()
+                        val dominant = extractDominantColor(bitmap, accentColor)
+                        imageBitmap = composeBmp
+                        accentColor = dominant
+                        iconCache[appId] = composeBmp to dominant
+                    }
+                } catch (e: Exception) {
+                    Log.w("AppRepository", "Failed to extract icon for $packageName", e)
                 }
-            } catch (e: Exception) {
-                Log.w("AppRepository", "Failed to extract icon for $packageName", e)
             }
 
             apps.add(
                 AppItem(
-                    id = "$packageName/$activityName",
+                    id = appId,
                     packageName = packageName,
                     activityName = activityName,
                     label = label,
@@ -95,6 +120,7 @@ class AppRepository(private val context: Context) {
         }
 
         apps.sortBy { it.label.lowercase() }
+        cachedAppList = apps
         apps
     }
 
@@ -107,7 +133,7 @@ class AppRepository(private val context: Context) {
         return when {
             p.contains("retroarch") || l.contains("retroarch") -> "RETROARCH"
             p.contains("drastic") || p.contains("melonds") || l.contains("drastic") || l.contains("melonds") -> "DUAL SCREEN"
-            p.contains("citra") || p.contains("mandarine") || p.contains("lime3ds") || l.contains("citra") -> "3D PORTABLE"
+            p.contains("citra") || p.contains("mandarine") || p.contains("lime3ds") || p.contains("azahar") || l.contains("citra") -> "3D DUAL SCREEN"
             p.contains("dolphin") || l.contains("dolphin") -> "OPTICAL RETRO"
             p.contains("ppsspp") || l.contains("ppsspp") -> "PORTABLE"
             p.contains("aethersx2") || p.contains("nethersx2") || p.contains("play!") -> "128-BIT RETRO"
@@ -136,9 +162,9 @@ class AppRepository(private val context: Context) {
 
         val lowered = (packageName + " " + label).lowercase()
         return lowered.contains("game") ||
-                lowered.contains("steam") ||
-                lowered.contains("emulator") ||
-                lowered.contains("arcade")
+            lowered.contains("steam") ||
+            lowered.contains("emulator") ||
+            lowered.contains("arcade")
     }
 
     private fun isMediaApp(appInfo: ApplicationInfo, packageName: String, label: String): Boolean {
@@ -152,28 +178,31 @@ class AppRepository(private val context: Context) {
         }
         val lowered = (packageName + " " + label).lowercase()
         return lowered.contains("youtube") ||
-                lowered.contains("netflix") ||
-                lowered.contains("spotify") ||
-                lowered.contains("twitch") ||
-                lowered.contains("prime video") ||
-                lowered.contains("music") ||
-                lowered.contains("video") ||
-                lowered.contains("player") ||
-                lowered.contains("gallery") ||
-                lowered.contains("plex") ||
-                lowered.contains("kodi") ||
-                lowered.contains("vlc")
+            lowered.contains("netflix") ||
+            lowered.contains("spotify") ||
+            lowered.contains("twitch") ||
+            lowered.contains("prime video") ||
+            lowered.contains("music") ||
+            lowered.contains("video") ||
+            lowered.contains("player") ||
+            lowered.contains("gallery") ||
+            lowered.contains("plex") ||
+            lowered.contains("kodi") ||
+            lowered.contains("vlc")
     }
 
     private fun drawableToBitmap(drawable: Drawable?): Bitmap? {
         if (drawable == null) return null
         if (drawable is BitmapDrawable && drawable.bitmap != null) {
-            return drawable.bitmap
+            val bmp = drawable.bitmap
+            if (bmp.width <= 128 && bmp.height <= 128) return bmp
+            return Bitmap.createScaledBitmap(bmp, 128, 128, true)
         }
 
-        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
-        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
-        val bitmap = Bitmap.createBitmap(width.coerceAtMost(256), height.coerceAtMost(256), Bitmap.Config.ARGB_8888)
+        // Downscale to 128x128 max for zero GPU texture upload lag during fast scrolling
+        val width = (if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128).coerceAtMost(128)
+        val height = (if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128).coerceAtMost(128)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
@@ -188,8 +217,8 @@ class AppRepository(private val context: Context) {
         var bestColor = fallback
         var maxScore = -1f
 
-        val stepX = (w / 8).coerceAtLeast(1)
-        val stepY = (h / 8).coerceAtLeast(1)
+        val stepX = (w / 6).coerceAtLeast(1)
+        val stepY = (h / 6).coerceAtLeast(1)
         val hsl = FloatArray(3)
 
         for (x in stepX / 2 until w step stepX) {

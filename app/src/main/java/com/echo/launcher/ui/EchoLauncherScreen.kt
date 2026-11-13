@@ -1,5 +1,11 @@
 package com.echo.launcher.ui
 
+import android.app.role.RoleManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SoundEffectConstants
@@ -10,13 +16,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -36,7 +49,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.AppRepository
 import com.echo.launcher.data.DockAction
@@ -55,7 +71,11 @@ import com.echo.launcher.ui.components.GameCarousel
 import com.echo.launcher.ui.components.GameDetailsModal
 import com.echo.launcher.ui.components.TopBar
 import com.echo.launcher.ui.theme.ElectricCyan
+import com.echo.launcher.ui.theme.PureWhite
 import com.echo.launcher.ui.theme.SurfaceBorder
+import com.echo.launcher.ui.theme.SurfaceCardElevated
+
+private var hasShownBootThisProcess = false
 
 @Composable
 fun EchoLauncherScreen(
@@ -73,14 +93,19 @@ fun EchoLauncherScreen(
     val screenWidth = configuration.screenWidthDp.dp
     val screenHeight = configuration.screenHeightDp.dp
 
-    // Auto-detect dual screen spanned clamshells (e.g. RG DS, Surface Duo, tall dual resolution)
-    val isTallSpannedDisplay = screenHeight > (screenWidth * 1.05f)
-    var isDualScreenMode by remember {
-        mutableStateOf(dualScreenManager.hasPhysicalSecondaryDisplay || isTallSpannedDisplay)
+    // Auto-detect dual screen spanned clamshells (Anbernic RG DS, vertical dual-screen span, or secondary display)
+    val isTallSpannedDisplay = screenHeight > (screenWidth * 0.95f)
+    var isDualScreenMode by remember(isTallSpannedDisplay, dualScreenManager.hasPhysicalSecondaryDisplay) {
+        mutableStateOf(
+            dualScreenManager.isDualScreenMode ||
+                dualScreenManager.hasPhysicalSecondaryDisplay ||
+                isTallSpannedDisplay
+        )
     }
 
-    var isBooting by remember { mutableStateOf(true) }
-    var allApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
+    var isDefaultHomeLauncher by remember { mutableStateOf(checkIsDefaultLauncher(context)) }
+    var isBooting by remember { mutableStateOf(!hasShownBootThisProcess) }
+    var allApps by remember { mutableStateOf(repository.getCachedApps() ?: emptyList()) }
     var selectedTab by remember { mutableStateOf(LauncherTab.GAMES) }
     var currentFocusZone by remember { mutableStateOf(FocusZone.CAROUSEL) }
     var gamepadLayout by remember { mutableStateOf(GamepadLayout.ABXY) }
@@ -98,24 +123,7 @@ fun EchoLauncherScreen(
     LaunchedEffect(Unit) {
         val loaded = repository.loadInstalledApps()
         allApps = loaded
-    }
-
-    // Hardware dual display support (e.g. Anbernic RG DS with secondary display hardware)
-    LaunchedEffect(allApps, isAllAppsOpen, dualScreenManager.hasPhysicalSecondaryDisplay) {
-        if (dualScreenManager.hasPhysicalSecondaryDisplay && allApps.isNotEmpty()) {
-            dualScreenManager.showSecondaryPresentation(
-                apps = allApps,
-                onLaunch = { repository.launchApp(it) },
-                onToggleAllApps = { isAllAppsOpen = !isAllAppsOpen },
-                onOpenSettings = { repository.launchSettings() }
-            )
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            dualScreenManager.dismissSecondaryPresentation()
-        }
+        isDefaultHomeLauncher = checkIsDefaultLauncher(context)
     }
 
     val currentTabApps = remember(allApps, selectedTab) {
@@ -139,6 +147,36 @@ fun EchoLauncherScreen(
     val activeApp = currentTabApps.getOrNull(activeCarouselIndex)
     val activeAccentColor = activeApp?.accentColor ?: ElectricCyan
 
+    // Hardware dual display support (Anbernic RG DS when secondary screen is exposed as Display 2)
+    LaunchedEffect(
+        allApps,
+        activeCarouselIndex,
+        isAllAppsOpen,
+        dualScreenManager.hasPhysicalSecondaryDisplay,
+        isDualScreenMode
+    ) {
+        if (dualScreenManager.hasPhysicalSecondaryDisplay && isDualScreenMode && allApps.isNotEmpty()) {
+            dualScreenManager.showSecondaryPresentation(
+                apps = currentTabApps,
+                selectedIndex = activeCarouselIndex,
+                onSelectIndex = { idx ->
+                    if (selectedTab == LauncherTab.GAMES) selectedGameIndex = idx else selectedMediaIndex = idx
+                },
+                onLaunch = { repository.launchApp(it) },
+                onToggleAllApps = { isAllAppsOpen = !isAllAppsOpen },
+                onOpenSettings = { repository.launchSettings() }
+            )
+        } else {
+            dualScreenManager.dismissSecondaryPresentation()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            dualScreenManager.release()
+        }
+    }
+
     fun playClickSound() {
         try { view.playSoundEffect(SoundEffectConstants.CLICK) } catch (_: Exception) {}
     }
@@ -147,9 +185,16 @@ fun EchoLauncherScreen(
         try { view.playSoundEffect(direction) } catch (_: Exception) {}
     }
 
+    fun toggleDualScreen() {
+        val next = dualScreenManager.toggleDualScreenMode()
+        isDualScreenMode = next
+        playClickSound()
+    }
+
     BackHandler(enabled = true) {
         if (isBooting) {
             isBooting = false
+            hasShownBootThisProcess = true
         } else if (isDetailsOpen) {
             isDetailsOpen = false
             playClickSound()
@@ -165,6 +210,7 @@ fun EchoLauncherScreen(
 
         if (isBooting) {
             isBooting = false
+            hasShownBootThisProcess = true
             playClickSound()
             return true
         }
@@ -210,7 +256,6 @@ fun EchoLauncherScreen(
             return true
         }
 
-        // Modal navigation
         if (isAllAppsOpen) {
             when (nativeKeyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -253,7 +298,6 @@ fun EchoLauncherScreen(
             return false
         }
 
-        // Main Console navigation
         when (currentFocusZone) {
             FocusZone.TOP_TABS -> {
                 when (nativeKeyCode) {
@@ -379,6 +423,9 @@ fun EchoLauncherScreen(
         }
     }
 
+    // Use split Dual-Screen layout if in Dual-Screen mode AND no external physical secondary Presentation is already handling screen 2
+    val useSpannedDualScreenLayout = isDualScreenMode && !dualScreenManager.hasPhysicalSecondaryDisplay
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -389,10 +436,10 @@ fun EchoLauncherScreen(
                 handleKeyNavigation(keyEvent.nativeKeyEvent.keyCode, isDown)
             }
     ) {
-        if (isDualScreenMode) {
-            // DUAL-SCREEN CLAMSHELL / RG DS SPANNED LAYOUT
+        if (useSpannedDualScreenLayout) {
+            // ANBERNIC RG DS / DUAL-SCREEN SPANNED CLAMSHELL MODE (Covers Both Screens)
             Column(modifier = Modifier.fillMaxSize()) {
-                // UPPER DISPLAY: Game Showcase & Horizontal Carousel
+                // UPPER SCREEN: Game Showcase & Horizontal Carousel
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -411,8 +458,18 @@ fun EchoLauncherScreen(
                                 playClickSound()
                             },
                             currentFocusZone = currentFocusZone,
-                            powerInfo = powerInfo
+                            powerInfo = powerInfo,
+                            isDualScreenMode = isDualScreenMode,
+                            onToggleDualScreen = ::toggleDualScreen
                         )
+                        if (!isDefaultHomeLauncher) {
+                            DefaultHomePromptBanner(
+                                onSetDefault = {
+                                    promptDefaultHomeLauncher(context)
+                                    isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+                                }
+                            )
+                        }
                         Spacer(modifier = Modifier.weight(1f))
                         GameCarousel(
                             apps = currentTabApps,
@@ -441,23 +498,32 @@ fun EchoLauncherScreen(
                     }
                 }
 
-                // Physical Hinge Seam Guard
+                // Physical Clamshell Hinge Seam Guard
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(10.dp)
+                        .height(8.dp)
                         .background(Color.Black)
                         .border(1.dp, SurfaceBorder)
                 )
 
-                // LOWER DISPLAY: Command Deck & Quick Controls
+                // LOWER SCREEN: Touch Command Deck & Quick Launch Matrix
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
                     DualScreenBottomDeck(
-                        apps = allApps,
+                        apps = currentTabApps,
+                        selectedIndex = activeCarouselIndex,
+                        onSelectIndex = { idx ->
+                            if (selectedTab == LauncherTab.GAMES) {
+                                selectedGameIndex = idx
+                            } else {
+                                selectedMediaIndex = idx
+                            }
+                            playClickSound()
+                        },
                         onLaunch = { app ->
                             playClickSound()
                             repository.launchApp(app)
@@ -471,15 +537,12 @@ fun EchoLauncherScreen(
                             repository.launchSettings()
                             playClickSound()
                         },
-                        onToggleDualScreenMode = {
-                            isDualScreenMode = !isDualScreenMode
-                            playClickSound()
-                        }
+                        onToggleDualScreenMode = ::toggleDualScreen
                     )
                 }
             }
         } else {
-            // STANDARD DISPLAY (Single Widescreen / Living Room TV)
+            // SINGLE SCREEN OR PHYSICAL DISPLAY-2 PRESENTATION MODE
             AmbientBackground(targetAccentColor = activeAccentColor)
 
             Column(
@@ -494,8 +557,19 @@ fun EchoLauncherScreen(
                         playClickSound()
                     },
                     currentFocusZone = currentFocusZone,
-                    powerInfo = powerInfo
+                    powerInfo = powerInfo,
+                    isDualScreenMode = isDualScreenMode,
+                    onToggleDualScreen = ::toggleDualScreen
                 )
+
+                if (!isDefaultHomeLauncher) {
+                    DefaultHomePromptBanner(
+                        onSetDefault = {
+                            promptDefaultHomeLauncher(context)
+                            isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+                        }
+                    )
+                }
 
                 Spacer(modifier = Modifier.weight(1f))
 
@@ -549,7 +623,6 @@ fun EchoLauncherScreen(
             }
         }
 
-        // Game Details Options Modal
         GameDetailsModal(
             isOpen = isDetailsOpen,
             app = activeApp,
@@ -562,7 +635,6 @@ fun EchoLauncherScreen(
             }
         )
 
-        // All Apps Modal Overlay
         AllAppsModal(
             isOpen = isAllAppsOpen,
             apps = allApps,
@@ -583,18 +655,92 @@ fun EchoLauncherScreen(
             }
         )
 
-        // Custom Console Boot Sequence
         AnimatedVisibility(
             visible = isBooting,
             enter = fadeIn(),
-            exit = fadeOut(tween(400))
+            exit = fadeOut(tween(260))
         ) {
             BootSequenceScreen(
                 onBootFinished = {
                     isBooting = false
+                    hasShownBootThisProcess = true
                     playClickSound()
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun DefaultHomePromptBanner(
+    onSetDefault: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 24.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(SurfaceCardElevated)
+            .border(1.dp, ElectricCyan.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+            .clickable(onClick = onSetDefault)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "⚡ CONSOLE BOOT MODE: Tap here to set ECHO OS as Default Home so turning on the console boots straight into ECHO OS",
+            color = PureWhite,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.SansSerif
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(ElectricCyan)
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = "ENABLE",
+                color = Color.Black,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+    }
+}
+
+private fun checkIsDefaultLauncher(context: Context): Boolean {
+    return try {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+        }
+        val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        resolveInfo?.activityInfo?.packageName == context.packageName
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun promptDefaultHomeLauncher(context: Context) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME) && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                return
+            }
+        }
+        val settingsIntent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(settingsIntent)
+    } catch (_: Exception) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {}
     }
 }
