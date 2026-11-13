@@ -25,7 +25,6 @@ import java.util.concurrent.ConcurrentHashMap
 class AppRepository(private val context: Context) {
 
     companion object {
-        // Static in-memory cache so icons & dominant colors are never re-decoded on resume or tab switch
         @Volatile
         private var cachedAppList: List<AppItem>? = null
         private val iconCache = ConcurrentHashMap<String, Pair<ImageBitmap, Color>>()
@@ -43,90 +42,106 @@ class AppRepository(private val context: Context) {
     fun getCachedApps(): List<AppItem>? = cachedAppList
 
     suspend fun loadInstalledApps(forceRefresh: Boolean = false): List<AppItem> = withContext(Dispatchers.IO) {
-        if (!forceRefresh) {
-            cachedAppList?.let { if (it.isNotEmpty()) return@withContext it }
-        }
-
-        val pm = context.packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-
-        val resolveInfos: List<ResolveInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pm.queryIntentActivities(
-                mainIntent,
-                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            pm.queryIntentActivities(mainIntent, 0)
-        }
-
-        val myPackage = context.packageName
-        val apps = ArrayList<AppItem>(resolveInfos.size)
-
-        for ((index, resolveInfo) in resolveInfos.withIndex()) {
-            val packageName = resolveInfo.activityInfo.packageName
-            if (packageName == myPackage) continue
-
-            val activityName = resolveInfo.activityInfo.name
-            val appId = "$packageName/$activityName"
-            val label = resolveInfo.loadLabel(pm)?.toString() ?: packageName
-            val appInfo = resolveInfo.activityInfo.applicationInfo
-
-            val emulatorClassification = detectEmulator(packageName, label)
-            val isEmulator = emulatorClassification != null
-            val isGame = isEmulator || isGameApp(appInfo, packageName, label)
-            val isMedia = isMediaApp(appInfo, packageName, label)
-            val systemTag = emulatorClassification ?: if (isGame) "CONSOLE" else if (isMedia) "MEDIA" else "SYSTEM"
-
-            var imageBitmap: ImageBitmap? = null
-            var accentColor = defaultPalette[index % defaultPalette.size]
-
-            val cachedIcon = iconCache[appId]
-            if (cachedIcon != null) {
-                imageBitmap = cachedIcon.first
-                accentColor = cachedIcon.second
-            } else {
-                try {
-                    val iconDrawable = resolveInfo.loadIcon(pm)
-                    val bitmap = drawableToBitmap(iconDrawable)
-                    if (bitmap != null) {
-                        val composeBmp = bitmap.asImageBitmap()
-                        val dominant = extractDominantColor(bitmap, accentColor)
-                        imageBitmap = composeBmp
-                        accentColor = dominant
-                        iconCache[appId] = composeBmp to dominant
-                    }
-                } catch (e: Exception) {
-                    Log.w("AppRepository", "Failed to extract icon for $packageName", e)
-                }
+        try {
+            if (!forceRefresh) {
+                cachedAppList?.let { if (it.isNotEmpty()) return@withContext it }
             }
 
-            apps.add(
-                AppItem(
-                    id = appId,
-                    packageName = packageName,
-                    activityName = activityName,
-                    label = label,
-                    iconBitmap = imageBitmap,
-                    isGame = isGame,
-                    isMedia = isMedia,
-                    isEmulator = isEmulator,
-                    systemTag = systemTag,
-                    accentColor = accentColor
-                )
-            )
-        }
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
 
-        apps.sortBy { it.label.lowercase() }
-        cachedAppList = apps
-        apps
+            val resolveInfos: List<ResolveInfo> = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.queryIntentActivities(
+                        mainIntent,
+                        PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.queryIntentActivities(mainIntent, 0)
+                }
+            } catch (_: Throwable) {
+                emptyList()
+            }
+
+            val myPackage = context.packageName
+            val seenIds = HashSet<String>(resolveInfos.size)
+            val apps = ArrayList<AppItem>(resolveInfos.size)
+
+            for ((index, resolveInfo) in resolveInfos.withIndex()) {
+                val activityInfo = resolveInfo.activityInfo ?: continue
+                val packageName = activityInfo.packageName ?: continue
+                if (packageName == myPackage) continue
+
+                val activityName = activityInfo.name ?: continue
+                val appId = "$packageName/$activityName"
+                if (!seenIds.add(appId)) continue
+
+                val label = try {
+                    resolveInfo.loadLabel(pm)?.toString()?.takeIf { it.isNotBlank() } ?: packageName
+                } catch (_: Throwable) {
+                    packageName
+                }
+                val appInfo = activityInfo.applicationInfo
+
+                val emulatorClassification = detectEmulator(packageName, label)
+                val isEmulator = emulatorClassification != null
+                val isGame = isEmulator || (appInfo != null && isGameApp(appInfo, packageName, label))
+                val isMedia = appInfo != null && isMediaApp(appInfo, packageName, label)
+                val systemTag = emulatorClassification ?: if (isGame) "CONSOLE" else if (isMedia) "MEDIA" else "SYSTEM"
+
+                var imageBitmap: ImageBitmap? = null
+                var accentColor = defaultPalette[index % defaultPalette.size]
+
+                val cachedIcon = iconCache[appId]
+                if (cachedIcon != null) {
+                    imageBitmap = cachedIcon.first
+                    accentColor = cachedIcon.second
+                } else {
+                    try {
+                        val iconDrawable = resolveInfo.loadIcon(pm)
+                        val softwareBitmap = drawableToSoftwareBitmap(iconDrawable)
+                        if (softwareBitmap != null) {
+                            val composeBmp = softwareBitmap.asImageBitmap()
+                            val dominant = extractDominantColor(softwareBitmap, accentColor)
+                            imageBitmap = composeBmp
+                            accentColor = dominant
+                            iconCache[appId] = composeBmp to dominant
+                        }
+                    } catch (e: Throwable) {
+                        Log.w("AppRepository", "Failed to extract icon for $packageName", e)
+                    }
+                }
+
+                apps.add(
+                    AppItem(
+                        id = appId,
+                        packageName = packageName,
+                        activityName = activityName,
+                        label = label,
+                        iconBitmap = imageBitmap,
+                        isGame = isGame,
+                        isMedia = isMedia,
+                        isEmulator = isEmulator,
+                        systemTag = systemTag,
+                        accentColor = accentColor
+                    )
+                )
+            }
+
+            apps.sortBy { it.label.lowercase() }
+            if (apps.isNotEmpty()) {
+                cachedAppList = apps
+            }
+            apps
+        } catch (e: Throwable) {
+            Log.e("AppRepository", "Error loading installed apps", e)
+            cachedAppList ?: emptyList()
+        }
     }
 
-    /**
-     * Enhanced detection for Anbernic, Retroid, and handheld retro emulators.
-     */
     private fun detectEmulator(packageName: String, label: String): String? {
         val p = packageName.lowercase()
         val l = label.lowercase()
@@ -160,7 +175,7 @@ class AppRepository(private val context: Context) {
             return true
         }
 
-        val lowered = (packageName + " " + label).lowercase()
+        val lowered = "$packageName $label".lowercase()
         return lowered.contains("game") ||
             lowered.contains("steam") ||
             lowered.contains("emulator") ||
@@ -176,7 +191,7 @@ class AppRepository(private val context: Context) {
                 return true
             }
         }
-        val lowered = (packageName + " " + label).lowercase()
+        val lowered = "$packageName $label".lowercase()
         return lowered.contains("youtube") ||
             lowered.contains("netflix") ||
             lowered.contains("spotify") ||
@@ -191,61 +206,73 @@ class AppRepository(private val context: Context) {
             lowered.contains("vlc")
     }
 
-    private fun drawableToBitmap(drawable: Drawable?): Bitmap? {
+    /**
+     * Always renders Drawable into a software ARGB_8888 Bitmap (max 128x128) so that:
+     * 1) Android HARDWARE Bitmaps never crash on bitmap.getPixel(x, y)
+     * 2) GPU texture memory stays small for 120Hz zero-lag scrolling
+     */
+    private fun drawableToSoftwareBitmap(drawable: Drawable?): Bitmap? {
         if (drawable == null) return null
-        if (drawable is BitmapDrawable && drawable.bitmap != null) {
-            val bmp = drawable.bitmap
-            if (bmp.width <= 128 && bmp.height <= 128) return bmp
-            return Bitmap.createScaledBitmap(bmp, 128, 128, true)
+        return try {
+            val width = (if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128).coerceIn(1, 128)
+            val height = (if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128).coerceIn(1, 128)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bitmap
+        } catch (_: Throwable) {
+            null
         }
-
-        // Downscale to 128x128 max for zero GPU texture upload lag during fast scrolling
-        val width = (if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128).coerceAtMost(128)
-        val height = (if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128).coerceAtMost(128)
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        drawable.setBounds(0, 0, canvas.width, canvas.height)
-        drawable.draw(canvas)
-        return bitmap
     }
 
     private fun extractDominantColor(bitmap: Bitmap, fallback: Color): Color {
-        val w = bitmap.width
-        val h = bitmap.height
-        if (w <= 0 || h <= 0) return fallback
+        return try {
+            val safeBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return fallback
+            } else {
+                bitmap
+            }
 
-        var bestColor = fallback
-        var maxScore = -1f
+            val w = safeBitmap.width
+            val h = safeBitmap.height
+            if (w <= 0 || h <= 0) return fallback
 
-        val stepX = (w / 6).coerceAtLeast(1)
-        val stepY = (h / 6).coerceAtLeast(1)
-        val hsl = FloatArray(3)
+            var bestColor = fallback
+            var maxScore = -1f
 
-        for (x in stepX / 2 until w step stepX) {
-            for (y in stepY / 2 until h step stepY) {
-                val pixel = bitmap.getPixel(x, y)
-                val alpha = (pixel ushr 24) and 0xFF
-                if (alpha < 100) continue
+            val stepX = (w / 6).coerceAtLeast(1)
+            val stepY = (h / 6).coerceAtLeast(1)
+            val hsl = FloatArray(3)
 
-                ColorUtils.colorToHSL(pixel, hsl)
-                val saturation = hsl[1]
-                val lightness = hsl[2]
+            for (x in stepX / 2 until w step stepX) {
+                for (y in stepY / 2 until h step stepY) {
+                    val pixel = safeBitmap.getPixel(x, y)
+                    val alpha = (pixel ushr 24) and 0xFF
+                    if (alpha < 100) continue
 
-                if (lightness < 0.15f || lightness > 0.88f) continue
-                if (saturation < 0.20f) continue
+                    ColorUtils.colorToHSL(pixel, hsl)
+                    val saturation = hsl[1]
+                    val lightness = hsl[2]
 
-                val score = saturation * 2.0f + (1.0f - kotlin.math.abs(lightness - 0.5f))
-                if (score > maxScore) {
-                    maxScore = score
-                    val r = (pixel shr 16) and 0xFF
-                    val g = (pixel shr 8) and 0xFF
-                    val b = pixel and 0xFF
-                    bestColor = Color(r, g, b, 255)
+                    if (lightness < 0.15f || lightness > 0.88f) continue
+                    if (saturation < 0.20f) continue
+
+                    val score = saturation * 2.0f + (1.0f - kotlin.math.abs(lightness - 0.5f))
+                    if (score > maxScore) {
+                        maxScore = score
+                        val r = (pixel shr 16) and 0xFF
+                        val g = (pixel shr 8) and 0xFF
+                        val b = pixel and 0xFF
+                        bestColor = Color(r, g, b, 255)
+                    }
                 }
             }
-        }
 
-        return bestColor
+            bestColor
+        } catch (_: Throwable) {
+            fallback
+        }
     }
 
     fun launchApp(appItem: AppItem): Boolean {
@@ -257,7 +284,15 @@ class AppRepository(private val context: Context) {
             }
             context.startActivity(intent)
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            try {
+                val fallbackIntent = context.packageManager.getLaunchIntentForPackage(appItem.packageName)
+                if (fallbackIntent != null) {
+                    fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(fallbackIntent)
+                    return true
+                }
+            } catch (_: Throwable) {}
             Log.e("AppRepository", "Unable to launch ${appItem.packageName}", e)
             false
         }
@@ -269,7 +304,7 @@ class AppRepository(private val context: Context) {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("AppRepository", "Failed to open updates url", e)
         }
     }
@@ -280,13 +315,13 @@ class AppRepository(private val context: Context) {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             try {
                 val fallback = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
                 context.startActivity(fallback)
-            } catch (e2: Exception) {
+            } catch (e2: Throwable) {
                 launchSettings()
             }
         }
@@ -298,7 +333,7 @@ class AppRepository(private val context: Context) {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("AppRepository", "Failed to open settings", e)
         }
     }

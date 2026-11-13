@@ -157,6 +157,7 @@ fun EchoLauncherScreen(
     ) {
         if (dualScreenManager.hasPhysicalSecondaryDisplay && isDualScreenMode && allApps.isNotEmpty()) {
             dualScreenManager.showSecondaryPresentation(
+                activityContext = context,
                 apps = currentTabApps,
                 selectedIndex = activeCarouselIndex,
                 onSelectIndex = { idx ->
@@ -423,8 +424,8 @@ fun EchoLauncherScreen(
         }
     }
 
-    // Use split Dual-Screen layout if in Dual-Screen mode AND no external physical secondary Presentation is already handling screen 2
-    val useSpannedDualScreenLayout = isDualScreenMode && !dualScreenManager.hasPhysicalSecondaryDisplay
+    // Always render the Dual-Screen Clamshell UI (Top Screen + Bottom Deck) when Dual Screen Mode is active
+    val useSpannedDualScreenLayout = isDualScreenMode
 
     Box(
         modifier = Modifier
