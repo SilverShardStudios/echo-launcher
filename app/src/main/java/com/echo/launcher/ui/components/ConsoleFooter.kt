@@ -35,7 +35,7 @@ fun ConsoleFooter(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 12.dp),
+            .padding(horizontal = 42.dp, vertical = 18.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {

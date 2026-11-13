@@ -12,15 +12,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
-data class BatteryInfo(
+data class PowerInfo(
     val percentage: Int = 100,
-    val isCharging: Boolean = false
+    val isCharging: Boolean = false,
+    val isPluggedAC: Boolean = true,
+    val isHomeConsolePower: Boolean = true
 )
 
 @Composable
-fun rememberBatteryState(): State<BatteryInfo> {
+fun rememberPowerState(): State<PowerInfo> {
     val context = LocalContext.current
-    val batteryState = remember { mutableStateOf(getInitialBatteryInfo(context)) }
+    val powerState = remember { mutableStateOf(getInitialPowerInfo(context)) }
 
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
@@ -29,8 +31,14 @@ fun rememberBatteryState(): State<BatteryInfo> {
                 val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                 val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
                 val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
+                val present = intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true)
+
                 val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                         status == BatteryManager.BATTERY_STATUS_FULL
+                val isPluggedAC = plugged == BatteryManager.BATTERY_PLUGGED_AC ||
+                        plugged == BatteryManager.BATTERY_PLUGGED_USB ||
+                        plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS
 
                 val pct = if (level >= 0 && scale > 0) {
                     ((level.toFloat() / scale.toFloat()) * 100).toInt()
@@ -38,7 +46,15 @@ fun rememberBatteryState(): State<BatteryInfo> {
                     100
                 }
 
-                batteryState.value = BatteryInfo(percentage = pct, isCharging = isCharging)
+                // If not present or permanently plugged on AC, treat as home console wall power
+                val isHomeConsole = !present || (isPluggedAC && pct == 100) || plugged == BatteryManager.BATTERY_PLUGGED_AC
+
+                powerState.value = PowerInfo(
+                    percentage = pct,
+                    isCharging = isCharging,
+                    isPluggedAC = isPluggedAC,
+                    isHomeConsolePower = isHomeConsole
+                )
             }
         }
 
@@ -48,12 +64,26 @@ fun rememberBatteryState(): State<BatteryInfo> {
             val level = stickyIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
             val scale = stickyIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
             val status = stickyIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val plugged = stickyIntent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
+            val present = stickyIntent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true)
+
             val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                     status == BatteryManager.BATTERY_STATUS_FULL
+            val isPluggedAC = plugged == BatteryManager.BATTERY_PLUGGED_AC ||
+                    plugged == BatteryManager.BATTERY_PLUGGED_USB
+
             val pct = if (level >= 0 && scale > 0) {
                 ((level.toFloat() / scale.toFloat()) * 100).toInt()
             } else 100
-            batteryState.value = BatteryInfo(percentage = pct, isCharging = isCharging)
+
+            val isHomeConsole = !present || (isPluggedAC && pct == 100) || plugged == BatteryManager.BATTERY_PLUGGED_AC
+
+            powerState.value = PowerInfo(
+                percentage = pct,
+                isCharging = isCharging,
+                isPluggedAC = isPluggedAC,
+                isHomeConsolePower = isHomeConsole
+            )
         }
 
         onDispose {
@@ -63,11 +93,16 @@ fun rememberBatteryState(): State<BatteryInfo> {
         }
     }
 
-    return batteryState
+    return powerState
 }
 
-private fun getInitialBatteryInfo(context: Context): BatteryInfo {
+private fun getInitialPowerInfo(context: Context): PowerInfo {
     val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
     val pct = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
-    return BatteryInfo(percentage = pct, isCharging = false)
+    return PowerInfo(
+        percentage = pct,
+        isCharging = false,
+        isPluggedAC = true,
+        isHomeConsolePower = true
+    )
 }

@@ -2,16 +2,12 @@ package com.echo.launcher.ui.components
 
 import android.media.AudioManager
 import android.media.ToneGenerator
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.ObsidianBackground
-import com.echo.launcher.ui.theme.PlatinumWhite
 import com.echo.launcher.ui.theme.PureWhite
 import com.echo.launcher.ui.theme.TextMuted
 import kotlinx.coroutines.delay
@@ -56,13 +51,12 @@ fun BootSequenceScreen(
     onBootFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var bootStage by remember { mutableStateOf(0) }
-    var bootTelemetry by remember { mutableStateOf("INITIALIZING ECHO KERNEL...") }
+    var bootTelemetry by remember { mutableStateOf("INITIALIZING ECHO CONSOLE BIOS...") }
 
     val infiniteTransition = rememberInfiniteTransition(label = "BootPulse")
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
+        initialValue = 0.88f,
+        targetValue = 1.12f,
         animationSpec = infiniteRepeatable(
             animation = tween(1200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -71,23 +65,22 @@ fun BootSequenceScreen(
     )
 
     LaunchedEffect(Unit) {
-        // Synthesize futuristic console boot chime
+        // Synthesize home console startup chime
         try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
+            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 75)
             toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
-            delay(150)
-            toneGen.startTone(ToneGenerator.TONE_PROP_ACK, 200)
-            delay(250)
+            delay(160)
+            toneGen.startTone(ToneGenerator.TONE_PROP_ACK, 220)
+            delay(260)
             toneGen.release()
         } catch (_: Exception) {}
 
-        bootTelemetry = "DETECTING HARDWARE // ANBERNIC & CONTROLLER BUS..."
+        bootTelemetry = "HDMI DISPLAY OUTPUT DETECTED // 60Hz SYNC..."
         delay(600)
-        bootStage = 1
-        bootTelemetry = "SYSTEMS NOMINAL // 60 FPS COMPOSE PIPELINE READY"
-        delay(900)
-        bootStage = 2
-        delay(900)
+        bootTelemetry = "GAMEPAD CONTROLLER BUS INITIALIZED // PAD 1 ACTIVE"
+        delay(800)
+        bootTelemetry = "ALL SYSTEMS NOMINAL // WELCOME TO ECHO OS"
+        delay(800)
         onBootFinished()
     }
 
@@ -98,16 +91,16 @@ fun BootSequenceScreen(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onBootFinished // Tap to skip
+                onClick = onBootFinished // Press any button or tap to skip
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Cybernetic background grid & radar line
+        // Cybernetic background grid
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val gridSpacing = 48.dp.toPx()
+            val gridSpacing = 56.dp.toPx()
             for (x in 0..(size.width / gridSpacing).toInt()) {
                 drawLine(
-                    color = Color(0x0A00E5FF),
+                    color = Color(0x0C00E5FF),
                     start = Offset(x * gridSpacing, 0f),
                     end = Offset(x * gridSpacing, size.height),
                     strokeWidth = 1f
@@ -115,21 +108,20 @@ fun BootSequenceScreen(
             }
             for (y in 0..(size.height / gridSpacing).toInt()) {
                 drawLine(
-                    color = Color(0x0A00E5FF),
+                    color = Color(0x0C00E5FF),
                     start = Offset(0f, y * gridSpacing),
                     end = Offset(size.width, y * gridSpacing),
                     strokeWidth = 1f
                 )
             }
 
-            // Radial boot glow
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        ElectricCyan.copy(alpha = 0.28f),
+                        ElectricCyan.copy(alpha = 0.25f),
                         Color.Transparent
                     ),
-                    radius = size.minDimension * 0.5f,
+                    radius = size.minDimension * 0.55f,
                     center = center
                 )
             )
@@ -141,23 +133,20 @@ fun BootSequenceScreen(
         ) {
             // Holographic Console Logo Core
             Box(
-                modifier = Modifier.size(110.dp),
+                modifier = Modifier.size(120.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    // Outer ring
                     drawCircle(
-                        color = ElectricCyan.copy(alpha = 0.4f),
+                        color = ElectricCyan.copy(alpha = 0.45f),
                         radius = (size.minDimension / 2.2f) * pulseScale,
                         style = Stroke(width = 2.dp.toPx())
                     )
-                    // Middle ring
                     drawCircle(
                         color = ElectricCyan,
                         radius = size.minDimension / 2.8f,
-                        style = Stroke(width = 3.dp.toPx())
+                        style = Stroke(width = 3.5.dp.toPx())
                     )
-                    // Core point
                     drawCircle(
                         color = PureWhite,
                         radius = size.minDimension / 8f
@@ -165,7 +154,7 @@ fun BootSequenceScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Typographic Wordmark
             Row(
@@ -175,7 +164,7 @@ fun BootSequenceScreen(
                 Text(
                     text = "ECHO",
                     color = PureWhite,
-                    fontSize = 28.sp,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 4.sp
                 )
@@ -183,36 +172,36 @@ fun BootSequenceScreen(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .background(ElectricCyan)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "OS",
+                        text = "CONSOLE",
                         color = Color.Black,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
+                        letterSpacing = 1.2.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Telemetry line
+            // Console Telemetry
             Text(
                 text = bootTelemetry,
-                color = ElectricCyan.copy(alpha = 0.85f),
-                fontSize = 11.sp,
+                color = ElectricCyan.copy(alpha = 0.90f),
+                fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.sp
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(26.dp))
 
             // Skip Hint
             Text(
-                text = "PRESS ANY BUTTON TO SKIP",
-                color = TextMuted.copy(alpha = 0.6f),
-                fontSize = 9.5.sp,
+                text = "PRESS (A) OR ANY BUTTON TO START",
+                color = TextMuted.copy(alpha = 0.65f),
+                fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.5.sp
             )

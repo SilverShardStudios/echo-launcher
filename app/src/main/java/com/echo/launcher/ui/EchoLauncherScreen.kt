@@ -32,12 +32,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.AppRepository
-import com.echo.launcher.data.BatteryInfo
 import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.FocusZone
 import com.echo.launcher.data.GamepadLayout
 import com.echo.launcher.data.HandheldControllerManager
 import com.echo.launcher.data.LauncherTab
+import com.echo.launcher.data.PowerInfo
 import com.echo.launcher.ui.components.AllAppsModal
 import com.echo.launcher.ui.components.AmbientBackground
 import com.echo.launcher.ui.components.BootSequenceScreen
@@ -49,7 +49,7 @@ import com.echo.launcher.ui.theme.ElectricCyan
 
 @Composable
 fun EchoLauncherScreen(
-    batteryInfo: BatteryInfo,
+    powerInfo: PowerInfo,
     onHandleKeyEvent: ((KeyEvent) -> Boolean) -> Unit = {},
     onHandleMotionEvent: ((MotionEvent) -> Boolean) -> Unit = {}
 ) {
@@ -372,7 +372,7 @@ fun EchoLauncherScreen(
                     playClickSound()
                 },
                 currentFocusZone = currentFocusZone,
-                batteryInfo = batteryInfo
+                powerInfo = powerInfo
             )
 
             Spacer(modifier = Modifier.weight(1f))

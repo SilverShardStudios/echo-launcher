@@ -9,7 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.echo.launcher.data.rememberBatteryState
+import com.echo.launcher.data.rememberPowerState
 import com.echo.launcher.ui.EchoLauncherScreen
 import com.echo.launcher.ui.theme.EchoTheme
 
@@ -26,9 +26,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             EchoTheme {
-                val batteryInfo = rememberBatteryState()
+                val powerInfo = rememberPowerState()
                 EchoLauncherScreen(
-                    batteryInfo = batteryInfo.value,
+                    powerInfo = powerInfo.value,
                     onHandleKeyEvent = { listener ->
                         keyEventListener = listener
                     },

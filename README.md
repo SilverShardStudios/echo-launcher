@@ -1,4 +1,4 @@
-# ECHO OS — Android Console & Handheld Launcher
+# ECHO OS — Android Home Gaming Console Launcher
 
 <p align="center">
   <img src="app/src/main/res/drawable/ic_echo_logo.xml" width="100" height="100" alt="ECHO OS Logo" />
@@ -6,22 +6,23 @@
 
 <p align="center">
   <b>A sleek, console-native Android Home Launcher built with Jetpack Compose & Kotlin.</b><br>
-  Engineered specifically for handheld gaming consoles, retro devices, and landscape Android displays.
+  Engineered specifically for living room TV gaming consoles, microconsoles, and HDMI-connected Android hardware.
 </p>
 
 ---
 
 ## Highlights
 
-- **Pure Console Immersion:** Zero-touch controller navigation with tactile audio feedback on every button press and D-pad move.
-- **Custom BIOS Boot Sequence:** Cybernetic startup telemetry and animated holographic core on device launch.
+- **10-Foot Living Room UI:** Overscan-safe layout designed for 1080p and 4K TV displays, fully navigable from the couch with zero touch required.
+- **Dedicated Console Features:** Built with Android Leanback launcher integration (`LEANBACK_LAUNCHER`), gamepad-only input requirements, and AC wall power status monitoring.
+- **Custom BIOS Boot Sequence:** Cybernetic startup chime, telemetry diagnostics (`HDMI 60Hz`, `PAD 1 DETECTED`), and animated holographic core.
 - **Dynamic Ambient Glow:** Real-time radial canvas background that smoothly interpolates and shifts color based on the selected game's extracted palette.
 - **Console Horizontal Carousel:** Center horizontal `LazyRow` with specular glass highlight tiles, active focus zoom (`1.12f`), electric cyan glowing outline, and instant auto-centering.
 - **Dual Hero Actions:** Primary pill `[ ▶ Play ]` button alongside secondary `[ ⋯ Options ]` sheet for app info, quick settings, and direct launches.
 - **Authentic Controller Legend Bar:** Bottom HUD featuring action badges `(A) Play`, `(X) All Apps`, `(Y) Options`, `(L1)/(R1) Tabs`.
-- **System Dock:** Quick-access dock for All Apps drawer, ECHO Updates, Wi-Fi & Bluetooth, and Android Settings.
-- **Handheld Gamepad Compatibility:** Native analog thumbstick, D-pad, and HAT axis support with configurable confirm button layouts (South Confirm vs. East Confirm).
-- **True System Home Screen:** Configured with `CATEGORY_HOME` and `CATEGORY_DEFAULT` with locked landscape orientation and transient system bar hiding. Back button never exits home screen.
+- **System Dock:** Quick-access dock for All Apps drawer, ECHO Updates, Wi-Fi / Ethernet, and Android Settings.
+- **Controller & Joystick Support:** Full D-pad, analog thumbstick, and HAT axis support with configurable confirm button layouts (South Confirm vs. East Confirm).
+- **True System Home Screen:** Configured with `CATEGORY_HOME`, `CATEGORY_DEFAULT`, and `CATEGORY_LEANBACK_LAUNCHER`. Back button never exits home screen.
 
 ---
 
@@ -76,13 +77,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## Setting ECHO OS as Default Launcher
-1. Install the APK onto your Android console or handheld.
-2. Press the physical **Home** button on your device.
+## Setting ECHO OS as Default TV Console Launcher
+1. Install the APK onto your Android TV box or home console.
+2. Press the physical **Home** button on your controller or remote.
 3. Android will prompt: *"Select a home app"*.
 4. Choose **ECHO OS** and select **Always**.
 
 ---
 
 ## License
-MIT License. Open source for all console and handheld enthusiasts.
+MIT License. Open source for all console enthusiasts.
