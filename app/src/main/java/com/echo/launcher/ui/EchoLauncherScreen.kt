@@ -8,13 +8,17 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -25,14 +29,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.AppRepository
 import com.echo.launcher.data.DockAction
+import com.echo.launcher.data.DualScreenManager
 import com.echo.launcher.data.FocusZone
 import com.echo.launcher.data.GamepadLayout
 import com.echo.launcher.data.HandheldControllerManager
@@ -42,10 +50,12 @@ import com.echo.launcher.ui.components.AllAppsModal
 import com.echo.launcher.ui.components.AmbientBackground
 import com.echo.launcher.ui.components.BootSequenceScreen
 import com.echo.launcher.ui.components.ConsoleFooter
+import com.echo.launcher.ui.components.DualScreenBottomDeck
 import com.echo.launcher.ui.components.GameCarousel
 import com.echo.launcher.ui.components.GameDetailsModal
 import com.echo.launcher.ui.components.TopBar
 import com.echo.launcher.ui.theme.ElectricCyan
+import com.echo.launcher.ui.theme.SurfaceBorder
 
 @Composable
 fun EchoLauncherScreen(
@@ -57,6 +67,17 @@ fun EchoLauncherScreen(
     val view = LocalView.current
     val repository = remember { AppRepository(context) }
     val controllerManager = remember { HandheldControllerManager() }
+    val dualScreenManager = remember { DualScreenManager(context) }
+
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
+    val screenHeight = configuration.screenHeightDp.dp
+
+    // Auto-detect dual screen spanned clamshells (e.g. RG DS, Surface Duo, tall dual resolution)
+    val isTallSpannedDisplay = screenHeight > (screenWidth * 1.05f)
+    var isDualScreenMode by remember {
+        mutableStateOf(dualScreenManager.hasPhysicalSecondaryDisplay || isTallSpannedDisplay)
+    }
 
     var isBooting by remember { mutableStateOf(true) }
     var allApps by remember { mutableStateOf<List<AppItem>>(emptyList()) }
@@ -77,6 +98,24 @@ fun EchoLauncherScreen(
     LaunchedEffect(Unit) {
         val loaded = repository.loadInstalledApps()
         allApps = loaded
+    }
+
+    // Hardware dual display support (e.g. Anbernic RG DS with secondary display hardware)
+    LaunchedEffect(allApps, isAllAppsOpen, dualScreenManager.hasPhysicalSecondaryDisplay) {
+        if (dualScreenManager.hasPhysicalSecondaryDisplay && allApps.isNotEmpty()) {
+            dualScreenManager.showSecondaryPresentation(
+                apps = allApps,
+                onLaunch = { repository.launchApp(it) },
+                onToggleAllApps = { isAllAppsOpen = !isAllAppsOpen },
+                onOpenSettings = { repository.launchSettings() }
+            )
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            dualScreenManager.dismissSecondaryPresentation()
+        }
     }
 
     val currentTabApps = remember(allApps, selectedTab) {
@@ -124,14 +163,12 @@ fun EchoLauncherScreen(
     fun handleKeyNavigation(nativeKeyCode: Int, isActionDown: Boolean): Boolean {
         if (!isActionDown) return false
 
-        // Any button skips the boot screen
         if (isBooting) {
             isBooting = false
             playClickSound()
             return true
         }
 
-        // Details Modal Key Handling
         if (isDetailsOpen) {
             if (controllerManager.isCancelKey(nativeKeyCode)) {
                 isDetailsOpen = false
@@ -147,7 +184,6 @@ fun EchoLauncherScreen(
             return false
         }
 
-        // Quick All Apps Shortcut via (X) Button / SELECT
         if (controllerManager.isDrawerKey(nativeKeyCode)) {
             isAllAppsOpen = !isAllAppsOpen
             if (isAllAppsOpen) currentFocusZone = FocusZone.ALL_APPS_MODAL
@@ -155,7 +191,6 @@ fun EchoLauncherScreen(
             return true
         }
 
-        // Options shortcut via (Y) Button / START / MENU
         if (controllerManager.isOptionsKey(nativeKeyCode)) {
             if (activeApp != null && !isAllAppsOpen) {
                 isDetailsOpen = true
@@ -164,7 +199,6 @@ fun EchoLauncherScreen(
             }
         }
 
-        // Bumper L1 / R1 tab switcher
         if (controllerManager.isTabLeft(nativeKeyCode)) {
             selectedTab = LauncherTab.GAMES
             playNavSound(SoundEffectConstants.NAVIGATION_LEFT)
@@ -339,7 +373,6 @@ fun EchoLauncherScreen(
         handleKeyNavigation(event.keyCode, event.action == KeyEvent.ACTION_DOWN)
     }
 
-    // Connect Anbernic analog stick and HAT axis events
     onHandleMotionEvent { motionEvent ->
         controllerManager.processMotionEvent(motionEvent) { directionCode ->
             handleKeyNavigation(directionCode, isActionDown = true)
@@ -356,76 +389,164 @@ fun EchoLauncherScreen(
                 handleKeyNavigation(keyEvent.nativeKeyEvent.keyCode, isDown)
             }
     ) {
-        // Dynamic radial ambient glow background with cybernetic grid
-        AmbientBackground(targetAccentColor = activeAccentColor)
-
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Top Bar
-            TopBar(
-                selectedTab = selectedTab,
-                onTabSelected = { tab ->
-                    selectedTab = tab
-                    currentFocusZone = FocusZone.CAROUSEL
-                    playClickSound()
-                },
-                currentFocusZone = currentFocusZone,
-                powerInfo = powerInfo
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Center Horizontal Game & Retro Emulator Carousel
-            GameCarousel(
-                apps = currentTabApps,
-                selectedIndex = activeCarouselIndex,
-                onIndexSelected = { index ->
-                    if (selectedTab == LauncherTab.GAMES) {
-                        selectedGameIndex = index
-                    } else {
-                        selectedMediaIndex = index
+        if (isDualScreenMode) {
+            // DUAL-SCREEN CLAMSHELL / RG DS SPANNED LAYOUT
+            Column(modifier = Modifier.fillMaxSize()) {
+                // UPPER DISPLAY: Game Showcase & Horizontal Carousel
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    AmbientBackground(targetAccentColor = activeAccentColor)
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        TopBar(
+                            selectedTab = selectedTab,
+                            onTabSelected = { tab ->
+                                selectedTab = tab
+                                currentFocusZone = FocusZone.CAROUSEL
+                                playClickSound()
+                            },
+                            currentFocusZone = currentFocusZone,
+                            powerInfo = powerInfo
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        GameCarousel(
+                            apps = currentTabApps,
+                            selectedIndex = activeCarouselIndex,
+                            onIndexSelected = { index ->
+                                if (selectedTab == LauncherTab.GAMES) {
+                                    selectedGameIndex = index
+                                } else {
+                                    selectedMediaIndex = index
+                                }
+                                currentFocusZone = FocusZone.CAROUSEL
+                                playClickSound()
+                            },
+                            onLaunch = { app ->
+                                playClickSound()
+                                repository.launchApp(app)
+                            },
+                            onOptions = {
+                                playClickSound()
+                                isDetailsOpen = true
+                            },
+                            currentFocusZone = currentFocusZone,
+                            gamepadLayout = gamepadLayout
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
                     }
-                    currentFocusZone = FocusZone.CAROUSEL
-                    playClickSound()
-                },
-                onLaunch = { app ->
-                    playClickSound()
-                    repository.launchApp(app)
-                },
-                onOptions = {
-                    playClickSound()
-                    isDetailsOpen = true
-                },
-                currentFocusZone = currentFocusZone,
-                gamepadLayout = gamepadLayout
-            )
+                }
 
-            Spacer(modifier = Modifier.weight(1f))
+                // Physical Hinge Seam Guard
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .background(Color.Black)
+                        .border(1.dp, SurfaceBorder)
+                )
 
-            // Console Footer: System Dock + Handheld Button Guide
-            ConsoleFooter(
-                selectedActionIndex = selectedDockIndex,
-                onActionSelected = { index ->
-                    selectedDockIndex = index
-                    currentFocusZone = FocusZone.DOCK
-                    playClickSound()
-                },
-                onActionTriggered = { action ->
-                    playClickSound()
-                    when (action) {
-                        DockAction.ALL_APPS -> {
+                // LOWER DISPLAY: Command Deck & Quick Controls
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    DualScreenBottomDeck(
+                        apps = allApps,
+                        onLaunch = { app ->
+                            playClickSound()
+                            repository.launchApp(app)
+                        },
+                        onToggleAllApps = {
                             isAllAppsOpen = true
                             currentFocusZone = FocusZone.ALL_APPS_MODAL
+                            playClickSound()
+                        },
+                        onOpenSettings = {
+                            repository.launchSettings()
+                            playClickSound()
+                        },
+                        onToggleDualScreenMode = {
+                            isDualScreenMode = !isDualScreenMode
+                            playClickSound()
                         }
-                        DockAction.ECHO_UPDATES -> repository.launchEchoUpdates()
-                        DockAction.WIFI_BT -> repository.launchWifiBtSettings()
-                        DockAction.SETTINGS -> repository.launchSettings()
-                    }
-                },
-                currentFocusZone = currentFocusZone
-            )
+                    )
+                }
+            }
+        } else {
+            // STANDARD DISPLAY (Single Widescreen / Living Room TV)
+            AmbientBackground(targetAccentColor = activeAccentColor)
+
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                TopBar(
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab ->
+                        selectedTab = tab
+                        currentFocusZone = FocusZone.CAROUSEL
+                        playClickSound()
+                    },
+                    currentFocusZone = currentFocusZone,
+                    powerInfo = powerInfo
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                GameCarousel(
+                    apps = currentTabApps,
+                    selectedIndex = activeCarouselIndex,
+                    onIndexSelected = { index ->
+                        if (selectedTab == LauncherTab.GAMES) {
+                            selectedGameIndex = index
+                        } else {
+                            selectedMediaIndex = index
+                        }
+                        currentFocusZone = FocusZone.CAROUSEL
+                        playClickSound()
+                    },
+                    onLaunch = { app ->
+                        playClickSound()
+                        repository.launchApp(app)
+                    },
+                    onOptions = {
+                        playClickSound()
+                        isDetailsOpen = true
+                    },
+                    currentFocusZone = currentFocusZone,
+                    gamepadLayout = gamepadLayout
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                ConsoleFooter(
+                    selectedActionIndex = selectedDockIndex,
+                    onActionSelected = { index ->
+                        selectedDockIndex = index
+                        currentFocusZone = FocusZone.DOCK
+                        playClickSound()
+                    },
+                    onActionTriggered = { action ->
+                        playClickSound()
+                        when (action) {
+                            DockAction.ALL_APPS -> {
+                                isAllAppsOpen = true
+                                currentFocusZone = FocusZone.ALL_APPS_MODAL
+                            }
+                            DockAction.ECHO_UPDATES -> repository.launchEchoUpdates()
+                            DockAction.WIFI_BT -> repository.launchWifiBtSettings()
+                            DockAction.SETTINGS -> repository.launchSettings()
+                        }
+                    },
+                    currentFocusZone = currentFocusZone
+                )
+            }
         }
 
         // Game Details Options Modal
