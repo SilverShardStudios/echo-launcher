@@ -80,6 +80,8 @@ private var hasShownBootThisProcess = false
 @Composable
 fun EchoLauncherScreen(
     powerInfo: PowerInfo,
+    resumeTick: Int = 0,
+    onRequestDefaultHome: () -> Unit = {},
     onHandleKeyEvent: ((KeyEvent) -> Boolean) -> Unit = {},
     onHandleMotionEvent: ((MotionEvent) -> Boolean) -> Unit = {}
 ) {
@@ -123,6 +125,10 @@ fun EchoLauncherScreen(
     LaunchedEffect(Unit) {
         val loaded = repository.loadInstalledApps()
         allApps = loaded
+        isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+    }
+
+    LaunchedEffect(resumeTick) {
         isDefaultHomeLauncher = checkIsDefaultLauncher(context)
     }
 
@@ -466,8 +472,8 @@ fun EchoLauncherScreen(
                         if (!isDefaultHomeLauncher) {
                             DefaultHomePromptBanner(
                                 onSetDefault = {
-                                    promptDefaultHomeLauncher(context)
-                                    isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+                                    playClickSound()
+                                    onRequestDefaultHome()
                                 }
                             )
                         }
@@ -566,8 +572,8 @@ fun EchoLauncherScreen(
                 if (!isDefaultHomeLauncher) {
                     DefaultHomePromptBanner(
                         onSetDefault = {
-                            promptDefaultHomeLauncher(context)
-                            isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+                            playClickSound()
+                            onRequestDefaultHome()
                         }
                     )
                 }

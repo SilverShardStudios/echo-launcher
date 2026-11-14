@@ -48,6 +48,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Disabled dummy Home activity used solely to force Android's native "Choose Home App" chooser popup -->
+        <activity
+            android:name=".FakeHomeTriggerActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
