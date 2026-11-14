@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -32,7 +31,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +50,7 @@ import com.echo.launcher.data.AppItem
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.ObsidianBackground
 import com.echo.launcher.ui.theme.PureWhite
+import com.echo.launcher.ui.theme.StatusGreen
 import com.echo.launcher.ui.theme.SurfaceCard
 import com.echo.launcher.ui.theme.SurfaceCardBorder
 import com.echo.launcher.ui.theme.TextMuted
@@ -60,6 +62,8 @@ fun AllAppsModal(
     selectedIndex: Int,
     onIndexSelected: (Int) -> Unit,
     onLaunch: (AppItem) -> Unit,
+    onRefreshApps: (() -> Unit)? = null,
+    onOptimizeClick: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -69,11 +73,20 @@ fun AllAppsModal(
         exit = fadeOut(tween(200)),
         modifier = modifier.fillMaxSize()
     ) {
+        var filterCategory by remember { mutableStateOf("ALL") }
+        val filteredApps = remember(apps, filterCategory) {
+            when (filterCategory) {
+                "GAMES" -> apps.filter { it.isGame }
+                "EMULATORS" -> apps.filter { it.isEmulator }
+                "FAVORITES" -> apps.filter { it.isFavorite }
+                else -> apps
+            }
+        }
+
         val gridState = rememberLazyGridState()
 
-        // Auto-scroll when navigating with controller
-        LaunchedEffect(selectedIndex) {
-            if (apps.isNotEmpty() && selectedIndex in apps.indices) {
+        LaunchedEffect(selectedIndex, filteredApps.size) {
+            if (filteredApps.isNotEmpty() && selectedIndex in filteredApps.indices) {
                 gridState.animateScrollToItem(selectedIndex)
             }
         }
@@ -87,7 +100,7 @@ fun AllAppsModal(
                     indication = null,
                     onClick = onDismiss
                 )
-                .padding(horizontal = 36.dp, vertical = 24.dp)
+                .padding(horizontal = 36.dp, vertical = 22.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -122,49 +135,115 @@ fun AllAppsModal(
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "${apps.size} Items",
+                                text = "${filteredApps.size} Items",
                                 color = ElectricCyan,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+
+                        // Category Filter Pills
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("ALL", "GAMES", "EMULATORS", "FAVORITES").forEach { cat ->
+                                val active = filterCategory == cat
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (active) ElectricCyan else SurfaceCard)
+                                        .border(1.dp, if (active) ElectricCyan else SurfaceCardBorder, RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            filterCategory = cat
+                                            onIndexSelected(0)
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        color = if (active) Color.Black else TextMuted,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    // Back / Close Hint [B] Back
+                    // Right Actions: Boost RAM + Refresh Library + Close
                     Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(SurfaceCard)
-                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp))
-                            .clickable(onClick = onDismiss)
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
+                        if (onOptimizeClick != null) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(StatusGreen.copy(alpha = 0.16f))
+                                    .border(1.dp, StatusGreen, RoundedCornerShape(14.dp))
+                                    .clickable(onClick = onOptimizeClick)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "⚡ Boost RAM",
+                                    color = StatusGreen,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (onRefreshApps != null) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(SurfaceCard)
+                                    .border(1.dp, SurfaceCardBorder, RoundedCornerShape(14.dp))
+                                    .clickable(onClick = onRefreshApps)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "↻ Rescan",
+                                    color = ElectricCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Row(
                             modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF334B)),
-                            contentAlignment = Alignment.Center
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(SurfaceCard)
+                                .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp))
+                                .clickable(onClick = onDismiss)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF334B)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "B",
+                                    color = PureWhite,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                             Text(
-                                text = "B",
+                                text = "Close",
                                 color = PureWhite,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Text(
-                            text = "Close",
-                            color = PureWhite,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // App Grid
                 LazyVerticalGrid(
@@ -175,7 +254,7 @@ fun AllAppsModal(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    itemsIndexed(apps, key = { _, it -> it.id }) { index, item ->
+                    itemsIndexed(filteredApps, key = { _, it -> it.id }) { index, item ->
                         val isSelected = index == selectedIndex
                         AllAppsGridItem(
                             app = item,
@@ -259,7 +338,7 @@ private fun AllAppsGridItem(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = app.label,
+            text = if (app.isFavorite) "★ ${app.label}" else app.label,
             color = if (isSelected) ElectricCyan else PureWhite,
             fontSize = 11.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,

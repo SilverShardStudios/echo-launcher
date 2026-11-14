@@ -42,6 +42,7 @@ import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.ObsidianBackground
 import com.echo.launcher.ui.theme.PlatinumWhite
 import com.echo.launcher.ui.theme.PureWhite
+import com.echo.launcher.ui.theme.StatusGreen
 import com.echo.launcher.ui.theme.SurfaceBorder
 import com.echo.launcher.ui.theme.SurfaceCard
 import com.echo.launcher.ui.theme.SurfaceCardElevated
@@ -53,6 +54,8 @@ fun GameDetailsModal(
     isOpen: Boolean,
     app: AppItem?,
     onLaunch: () -> Unit,
+    onBoostAndLaunch: (() -> Unit)? = null,
+    onToggleFavorite: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -78,7 +81,7 @@ fun GameDetailsModal(
         ) {
             Box(
                 modifier = Modifier
-                    .width(480.dp)
+                    .width(500.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .background(SurfaceCard)
                     .border(1.dp, SurfaceBorder, RoundedCornerShape(24.dp))
@@ -87,11 +90,11 @@ fun GameDetailsModal(
                         indication = null,
                         onClick = {} // Consume inner click
                     )
-                    .padding(28.dp)
+                    .padding(26.dp)
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Header with Icon & Title
                     Row(
@@ -126,7 +129,7 @@ fun GameDetailsModal(
 
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = app.label,
+                                text = if (app.isFavorite) "★ ${app.label}" else app.label,
                                 color = PlatinumWhite,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold
@@ -136,34 +139,72 @@ fun GameDetailsModal(
                                 color = TextMuted,
                                 fontSize = 12.sp
                             )
-                            // Tag
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(ElectricCyan.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = if (app.isGame) "CONSOLE GAME" else if (app.isMedia) "MEDIA APPLICATION" else "SYSTEM APP",
-                                    color = ElectricCyan,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(ElectricCyan.copy(alpha = 0.15f))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (app.isGame) "CONSOLE GAME" else if (app.isMedia) "MEDIA APPLICATION" else "SYSTEM APP",
+                                        color = ElectricCyan,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                if (app.isFavorite) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFFEAB308).copy(alpha = 0.2f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "★ PINNED FAVORITE",
+                                            color = Color(0xFFEAB308),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                    // Buttons
+                    // Primary Row: Boost & Launch + Standard Launch
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // Play button
+                        if (onBoostAndLaunch != null) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.15f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(StatusGreen)
+                                    .clickable(onClick = {
+                                        onDismiss()
+                                        onBoostAndLaunch()
+                                    })
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "⚡ Boost RAM & Launch",
+                                    color = Color.Black,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
                         Box(
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(0.85f)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(PureWhite)
                                 .clickable(onClick = {
@@ -174,14 +215,43 @@ fun GameDetailsModal(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Start Application",
+                                text = "▶ Launch Now",
                                 color = Color.Black,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                    }
 
-                        // App Info button
+                    // Secondary Row: Pin Favorite + Android App Info
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (onToggleFavorite != null) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(SurfaceCardElevated)
+                                    .border(
+                                        1.dp,
+                                        if (app.isFavorite) Color(0xFFEAB308) else SurfaceBorder,
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable(onClick = onToggleFavorite)
+                                    .padding(vertical = 11.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (app.isFavorite) "★ Unpin from Front" else "☆ Pin to Front of Carousel",
+                                    color = if (app.isFavorite) Color(0xFFEAB308) else PlatinumWhite,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -191,13 +261,13 @@ fun GameDetailsModal(
                                 .clickable(onClick = {
                                     openAppInfo(context, app.packageName)
                                 })
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 11.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "Android App Info",
                                 color = TextSecondary,
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -207,7 +277,7 @@ fun GameDetailsModal(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
+                            .padding(top = 2.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {

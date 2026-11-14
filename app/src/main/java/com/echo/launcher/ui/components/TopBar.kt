@@ -60,6 +60,8 @@ fun TopBar(
     onTabSelected: (LauncherTab) -> Unit,
     currentFocusZone: FocusZone,
     powerInfo: PowerInfo,
+    ramUsagePercent: Int = 42,
+    onOptimizeClick: (() -> Unit)? = null,
     isDualScreenMode: Boolean = false,
     onToggleDualScreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -84,7 +86,7 @@ fun TopBar(
         // Left: Profile Badge + Geometric ECHO Wordmark + Tab Switcher
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             UserProfileBadge()
 
@@ -104,11 +106,18 @@ fun TopBar(
             )
         }
 
-        // Right: RG DS / Dual Screen Toggle + Controller Status + Network + Power + Digital Clock
+        // Right: 1-Tap Optimizer Button + RG DS Dual Screen Toggle + Controller + Network + Power + Clock
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (onOptimizeClick != null) {
+                QuickBoostBadge(
+                    ramUsagePercent = ramUsagePercent,
+                    onClick = onOptimizeClick
+                )
+            }
+
             if (onToggleDualScreen != null) {
                 DualScreenToggleBadge(
                     isDualScreenMode = isDualScreenMode,
@@ -135,6 +144,29 @@ fun TopBar(
 }
 
 @Composable
+private fun QuickBoostBadge(
+    ramUsagePercent: Int,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(StatusGreen.copy(alpha = 0.16f))
+            .border(1.dp, StatusGreen.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = "⚡ BOOST • ${ramUsagePercent}% RAM",
+            color = StatusGreen,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+@Composable
 private fun DualScreenToggleBadge(
     isDualScreenMode: Boolean,
     onClick: () -> Unit
@@ -152,7 +184,7 @@ private fun DualScreenToggleBadge(
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
-            text = if (isDualScreenMode) "⧉ RG DS • 2X SCREEN" else "⧉ 1X SCREEN",
+            text = if (isDualScreenMode) "⧉ RG DS • 2X" else "⧉ 1X SCREEN",
             color = textColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.ExtraBold,

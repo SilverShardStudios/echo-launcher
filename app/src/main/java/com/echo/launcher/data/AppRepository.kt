@@ -3,12 +3,12 @@ package com.echo.launcher.data
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
@@ -30,6 +30,17 @@ class AppRepository(private val context: Context) {
         private val iconCache = ConcurrentHashMap<String, Pair<ImageBitmap, Color>>()
     }
 
+    private val prefs: SharedPreferences? = try {
+        val storageCtx = context.applicationContext.createDeviceProtectedStorageContext()
+        storageCtx.getSharedPreferences("echo_favorites_prefs", Context.MODE_PRIVATE)
+    } catch (_: Throwable) {
+        try {
+            context.getSharedPreferences("echo_favorites_prefs", Context.MODE_PRIVATE)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     private val defaultPalette = listOf(
         Color(0xFF00E5FF), // Electric Cyan
         Color(0xFF7C4DFF), // Deep Violet
@@ -39,6 +50,35 @@ class AppRepository(private val context: Context) {
         Color(0xFF2979FF)  // Azure Blue
     )
 
+    fun getFavoritePackages(): Set<String> {
+        return try {
+            prefs?.getStringSet("favorite_packages", emptySet()) ?: emptySet()
+        } catch (_: Throwable) {
+            emptySet()
+        }
+    }
+
+    fun toggleFavorite(packageName: String): Boolean {
+        return try {
+            val current = HashSet(getFavoritePackages())
+            val isNowFav = if (current.contains(packageName)) {
+                current.remove(packageName)
+                false
+            } else {
+                current.add(packageName)
+                true
+            }
+            prefs?.edit()?.putStringSet("favorite_packages", current)?.apply()
+            // Update cached list in-place so UI reflects immediately
+            cachedAppList = cachedAppList?.map { app ->
+                if (app.packageName == packageName) app.copy(isFavorite = isNowFav) else app
+            }?.sortedWith(compareByDescending<AppItem> { it.isFavorite }.thenBy { it.label.lowercase() })
+            isNowFav
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     fun getCachedApps(): List<AppItem>? = cachedAppList
 
     suspend fun loadInstalledApps(forceRefresh: Boolean = false): List<AppItem> = withContext(Dispatchers.IO) {
@@ -47,6 +87,7 @@ class AppRepository(private val context: Context) {
                 cachedAppList?.let { if (it.isNotEmpty()) return@withContext it }
             }
 
+            val favorites = getFavoritePackages()
             val pm = context.packageManager
             val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
@@ -90,6 +131,7 @@ class AppRepository(private val context: Context) {
                 val isEmulator = emulatorClassification != null
                 val isGame = isEmulator || (appInfo != null && isGameApp(appInfo, packageName, label))
                 val isMedia = appInfo != null && isMediaApp(appInfo, packageName, label)
+                val isFavorite = favorites.contains(packageName)
                 val systemTag = emulatorClassification ?: if (isGame) "CONSOLE" else if (isMedia) "MEDIA" else "SYSTEM"
 
                 var imageBitmap: ImageBitmap? = null
@@ -126,12 +168,13 @@ class AppRepository(private val context: Context) {
                         isMedia = isMedia,
                         isEmulator = isEmulator,
                         systemTag = systemTag,
-                        accentColor = accentColor
+                        accentColor = accentColor,
+                        isFavorite = isFavorite
                     )
                 )
             }
 
-            apps.sortBy { it.label.lowercase() }
+            apps.sortWith(compareByDescending<AppItem> { it.isFavorite }.thenBy { it.label.lowercase() })
             if (apps.isNotEmpty()) {
                 cachedAppList = apps
             }

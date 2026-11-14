@@ -10,13 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -41,6 +37,7 @@ import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.FocusZone
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.PureWhite
+import com.echo.launcher.ui.theme.StatusGreen
 import com.echo.launcher.ui.theme.SurfaceCard
 import com.echo.launcher.ui.theme.SurfaceCardBorder
 import com.echo.launcher.ui.theme.TextMuted
@@ -56,6 +53,7 @@ fun SystemDock(
     val isDockFocused = currentFocusZone == FocusZone.DOCK
 
     val actions = listOf(
+        DockAction.OPTIMIZE to "Boost RAM",
         DockAction.ALL_APPS to "All Apps",
         DockAction.ECHO_UPDATES to "ECHO Updates",
         DockAction.WIFI_BT to "Wi-Fi & BT",
@@ -67,8 +65,8 @@ fun SystemDock(
             .clip(RoundedCornerShape(28.dp))
             .background(SurfaceCard.copy(alpha = 0.65f))
             .border(1.dp, SurfaceCardBorder, RoundedCornerShape(28.dp))
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         actions.forEachIndexed { index, (action, label) ->
@@ -96,6 +94,9 @@ private fun DockItemButton(
     onClick: () -> Unit
 ) {
     val isHighlighted = isSelected && isDockFocused
+    val isOptimizeBtn = action == DockAction.OPTIMIZE
+    val accentTint = if (isOptimizeBtn) StatusGreen else ElectricCyan
+
     val scale by animateFloatAsState(
         targetValue = if (isHighlighted) 1.08f else 1.0f,
         animationSpec = tween(180),
@@ -104,8 +105,9 @@ private fun DockItemButton(
 
     val borderColor by animateColorAsState(
         targetValue = when {
-            isHighlighted -> ElectricCyan
-            isSelected -> ElectricCyan.copy(alpha = 0.5f)
+            isHighlighted -> accentTint
+            isSelected -> accentTint.copy(alpha = 0.55f)
+            isOptimizeBtn -> StatusGreen.copy(alpha = 0.40f)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
@@ -114,8 +116,9 @@ private fun DockItemButton(
 
     val bgColor by animateColorAsState(
         targetValue = when {
-            isHighlighted -> ElectricCyan.copy(alpha = 0.22f)
+            isHighlighted -> accentTint.copy(alpha = 0.22f)
             isSelected -> Color.White.copy(alpha = 0.08f)
+            isOptimizeBtn -> StatusGreen.copy(alpha = 0.12f)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
@@ -128,7 +131,7 @@ private fun DockItemButton(
             .shadow(
                 elevation = if (isHighlighted) 10.dp else 0.dp,
                 shape = RoundedCornerShape(20.dp),
-                spotColor = ElectricCyan
+                spotColor = accentTint
             )
             .clip(RoundedCornerShape(20.dp))
             .background(bgColor)
@@ -138,30 +141,35 @@ private fun DockItemButton(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        // Custom Geometric Icon for each action
+        val iconColor = when {
+            isHighlighted -> accentTint
+            isOptimizeBtn -> StatusGreen
+            isSelected -> PureWhite
+            else -> TextMuted
+        }
+
         DockIconCanvas(
             action = action,
-            tint = if (isHighlighted) ElectricCyan else if (isSelected) PureWhite else TextMuted
+            tint = iconColor
         )
 
         Text(
             text = label,
-            color = if (isHighlighted) ElectricCyan else if (isSelected) PureWhite else TextMuted,
-            fontSize = 12.sp,
-            fontWeight = if (isHighlighted || isSelected) FontWeight.Bold else FontWeight.Medium
+            color = iconColor,
+            fontSize = 11.5.sp,
+            fontWeight = if (isHighlighted || isSelected || isOptimizeBtn) FontWeight.Bold else FontWeight.Medium
         )
 
         if (isHighlighted) {
-            // Controller selection hint [A]
             Box(
                 modifier = Modifier
                     .size(15.dp)
                     .clip(CircleShape)
-                    .background(ElectricCyan),
+                    .background(accentTint),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -177,10 +185,22 @@ private fun DockItemButton(
 
 @Composable
 private fun DockIconCanvas(action: DockAction, tint: Color) {
-    Canvas(modifier = Modifier.size(18.dp)) {
+    Canvas(modifier = Modifier.size(17.dp)) {
         when (action) {
+            DockAction.OPTIMIZE -> {
+                // Lightning bolt inside power ring
+                val bolt = Path().apply {
+                    moveTo(size.width * 0.58f, size.height * 0.08f)
+                    lineTo(size.width * 0.22f, size.height * 0.54f)
+                    lineTo(size.width * 0.52f, size.height * 0.54f)
+                    lineTo(size.width * 0.38f, size.height * 0.92f)
+                    lineTo(size.width * 0.78f, size.height * 0.44f)
+                    lineTo(size.width * 0.50f, size.height * 0.44f)
+                    close()
+                }
+                drawPath(path = bolt, color = tint)
+            }
             DockAction.ALL_APPS -> {
-                // 4 rounded tiles grid
                 val tileSize = size.width * 0.38f
                 val spacing = size.width * 0.24f
                 val cr = CornerRadius(2.dp.toPx(), 2.dp.toPx())
@@ -191,7 +211,6 @@ private fun DockIconCanvas(action: DockAction, tint: Color) {
                 drawRoundRect(color = tint, topLeft = Offset(tileSize + spacing, tileSize + spacing), size = Size(tileSize, tileSize), cornerRadius = cr)
             }
             DockAction.ECHO_UPDATES -> {
-                // Circle with download down-arrow
                 drawCircle(color = tint, radius = size.width / 2.2f, style = Stroke(width = 1.4.dp.toPx()))
                 val arrowPath = Path().apply {
                     moveTo(size.width / 2f, size.height * 0.30f)
@@ -203,7 +222,6 @@ private fun DockIconCanvas(action: DockAction, tint: Color) {
                 drawPath(path = arrowPath, color = tint, style = Stroke(width = 1.6.dp.toPx()))
             }
             DockAction.WIFI_BT -> {
-                // Wi-Fi signal arcs
                 val center = Offset(size.width / 2f, size.height * 0.78f)
                 drawCircle(color = tint, radius = 2.dp.toPx(), center = center)
                 drawArc(
@@ -226,10 +244,8 @@ private fun DockIconCanvas(action: DockAction, tint: Color) {
                 )
             }
             DockAction.SETTINGS -> {
-                // Cogwheel / gear
                 val c = Offset(size.width / 2f, size.height / 2f)
                 drawCircle(color = tint, radius = size.width * 0.26f, center = c, style = Stroke(width = 2.2.dp.toPx()))
-                // 4 cog spokes
                 val spokeLen = size.width * 0.46f
                 val strokeW = 2.dp.toPx()
                 drawLine(color = tint, start = Offset(c.x, c.y - spokeLen), end = Offset(c.x, c.y + spokeLen), strokeWidth = strokeW)
@@ -237,7 +253,6 @@ private fun DockIconCanvas(action: DockAction, tint: Color) {
                 val diag = spokeLen * 0.707f
                 drawLine(color = tint, start = Offset(c.x - diag, c.y - diag), end = Offset(c.x + diag, c.y + diag), strokeWidth = strokeW)
                 drawLine(color = tint, start = Offset(c.x + diag, c.y - diag), end = Offset(c.x - diag, c.y + diag), strokeWidth = strokeW)
-                // Center hole
                 drawCircle(color = SurfaceCard, radius = size.width * 0.14f, center = c)
             }
         }

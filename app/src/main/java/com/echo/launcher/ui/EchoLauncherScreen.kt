@@ -1,11 +1,8 @@
 package com.echo.launcher.ui
 
-import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
-import android.provider.Settings
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SoundEffectConstants
@@ -36,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,12 +53,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.AppRepository
+import com.echo.launcher.data.DeviceOptimizer
 import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.DualScreenManager
 import com.echo.launcher.data.FocusZone
 import com.echo.launcher.data.GamepadLayout
 import com.echo.launcher.data.HandheldControllerManager
 import com.echo.launcher.data.LauncherTab
+import com.echo.launcher.data.OptimizationResult
 import com.echo.launcher.data.PowerInfo
 import com.echo.launcher.ui.components.AllAppsModal
 import com.echo.launcher.ui.components.AmbientBackground
@@ -69,11 +69,15 @@ import com.echo.launcher.ui.components.ConsoleFooter
 import com.echo.launcher.ui.components.DualScreenBottomDeck
 import com.echo.launcher.ui.components.GameCarousel
 import com.echo.launcher.ui.components.GameDetailsModal
+import com.echo.launcher.ui.components.OptimizerModal
 import com.echo.launcher.ui.components.TopBar
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.PureWhite
+import com.echo.launcher.ui.theme.StatusGreen
 import com.echo.launcher.ui.theme.SurfaceBorder
 import com.echo.launcher.ui.theme.SurfaceCardElevated
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private var hasShownBootThisProcess = false
 
@@ -87,9 +91,11 @@ fun EchoLauncherScreen(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    val coroutineScope = rememberCoroutineScope()
     val repository = remember { AppRepository(context) }
     val controllerManager = remember { HandheldControllerManager() }
     val dualScreenManager = remember { DualScreenManager(context) }
+    val deviceOptimizer = remember { DeviceOptimizer(context) }
 
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
@@ -119,17 +125,81 @@ fun EchoLauncherScreen(
 
     var isAllAppsOpen by remember { mutableStateOf(false) }
     var isDetailsOpen by remember { mutableStateOf(false) }
+    var isOptimizerOpen by remember { mutableStateOf(false) }
+
+    var telemetry by remember { mutableStateOf(deviceOptimizer.getTelemetry()) }
+    var isOptimizing by remember { mutableStateOf(false) }
+    var lastOptimizationResult by remember { mutableStateOf<OptimizationResult?>(null) }
+    var autoBoostEnabled by remember { mutableStateOf(deviceOptimizer.isAutoBoostEnabled) }
+    var toastNotificationText by remember { mutableStateOf<String?>(null) }
 
     val focusRequester = remember { FocusRequester() }
+
+    fun playClickSound() {
+        try { view.playSoundEffect(SoundEffectConstants.CLICK) } catch (_: Exception) {}
+    }
+
+    fun playNavSound(direction: Int) {
+        try { view.playSoundEffect(direction) } catch (_: Exception) {}
+    }
+
+    fun triggerDeviceOptimization(openModal: Boolean = true, onDone: (() -> Unit)? = null) {
+        playClickSound()
+        if (openModal) {
+            isOptimizerOpen = true
+        }
+        if (isOptimizing) return
+        coroutineScope.launch {
+            isOptimizing = true
+            val result = deviceOptimizer.optimizeDevice(allApps)
+            telemetry = result.telemetryAfter
+            lastOptimizationResult = result
+            isOptimizing = false
+            toastNotificationText = "⚡ ${result.statusMessage}"
+            onDone?.invoke()
+            delay(3600)
+            if (toastNotificationText?.contains(result.statusMessage) == true) {
+                toastNotificationText = null
+            }
+        }
+    }
+
+    fun launchAppWithOptionalBoost(app: AppItem, forceBoost: Boolean = false) {
+        playClickSound()
+        if (forceBoost || autoBoostEnabled) {
+            coroutineScope.launch {
+                val res = deviceOptimizer.optimizeDevice(allApps)
+                telemetry = res.telemetryAfter
+                lastOptimizationResult = res
+                toastNotificationText = "⚡ Boosted ${res.freedRamMb} MB RAM for ${app.label}"
+                repository.launchApp(app)
+            }
+        } else {
+            repository.launchApp(app)
+        }
+    }
+
+    fun refreshAppLibrary() {
+        playClickSound()
+        coroutineScope.launch {
+            val refreshed = repository.loadInstalledApps(forceRefresh = true)
+            allApps = refreshed
+            toastNotificationText = "↻ Library Rescanned: ${refreshed.size} Apps & Emulators Ready"
+            delay(2800)
+            toastNotificationText = null
+        }
+    }
 
     LaunchedEffect(Unit) {
         val loaded = repository.loadInstalledApps()
         allApps = loaded
         isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+        telemetry = deviceOptimizer.getTelemetry()
     }
 
     LaunchedEffect(resumeTick) {
         isDefaultHomeLauncher = checkIsDefaultLauncher(context)
+        telemetry = deviceOptimizer.getTelemetry()
     }
 
     val currentTabApps = remember(allApps, selectedTab) {
@@ -169,7 +239,7 @@ fun EchoLauncherScreen(
                 onSelectIndex = { idx ->
                     if (selectedTab == LauncherTab.GAMES) selectedGameIndex = idx else selectedMediaIndex = idx
                 },
-                onLaunch = { repository.launchApp(it) },
+                onLaunch = { launchAppWithOptionalBoost(it) },
                 onToggleAllApps = { isAllAppsOpen = !isAllAppsOpen },
                 onOpenSettings = { repository.launchSettings() }
             )
@@ -184,14 +254,6 @@ fun EchoLauncherScreen(
         }
     }
 
-    fun playClickSound() {
-        try { view.playSoundEffect(SoundEffectConstants.CLICK) } catch (_: Exception) {}
-    }
-
-    fun playNavSound(direction: Int) {
-        try { view.playSoundEffect(direction) } catch (_: Exception) {}
-    }
-
     fun toggleDualScreen() {
         val next = dualScreenManager.toggleDualScreenMode()
         isDualScreenMode = next
@@ -202,6 +264,9 @@ fun EchoLauncherScreen(
         if (isBooting) {
             isBooting = false
             hasShownBootThisProcess = true
+        } else if (isOptimizerOpen) {
+            isOptimizerOpen = false
+            playClickSound()
         } else if (isDetailsOpen) {
             isDetailsOpen = false
             playClickSound()
@@ -222,6 +287,19 @@ fun EchoLauncherScreen(
             return true
         }
 
+        if (isOptimizerOpen) {
+            if (controllerManager.isCancelKey(nativeKeyCode)) {
+                isOptimizerOpen = false
+                playClickSound()
+                return true
+            }
+            if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                triggerDeviceOptimization(openModal = true)
+                return true
+            }
+            return false
+        }
+
         if (isDetailsOpen) {
             if (controllerManager.isCancelKey(nativeKeyCode)) {
                 isDetailsOpen = false
@@ -229,9 +307,8 @@ fun EchoLauncherScreen(
                 return true
             }
             if (controllerManager.isConfirmKey(nativeKeyCode)) {
-                activeApp?.let { repository.launchApp(it) }
+                activeApp?.let { launchAppWithOptionalBoost(it) }
                 isDetailsOpen = false
-                playClickSound()
                 return true
             }
             return false
@@ -288,9 +365,8 @@ fun EchoLauncherScreen(
                 else -> {
                     if (controllerManager.isConfirmKey(nativeKeyCode)) {
                         allApps.getOrNull(selectedModalIndex)?.let {
-                            repository.launchApp(it)
                             isAllAppsOpen = false
-                            playClickSound()
+                            launchAppWithOptionalBoost(it)
                         }
                         return true
                     }
@@ -365,10 +441,7 @@ fun EchoLauncherScreen(
                     }
                     else -> {
                         if (controllerManager.isConfirmKey(nativeKeyCode)) {
-                            activeApp?.let {
-                                repository.launchApp(it)
-                                playClickSound()
-                            }
+                            activeApp?.let { launchAppWithOptionalBoost(it) }
                             return true
                         }
                     }
@@ -383,7 +456,7 @@ fun EchoLauncherScreen(
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        selectedDockIndex = (selectedDockIndex + 1).coerceAtMost(3)
+                        selectedDockIndex = (selectedDockIndex + 1).coerceAtMost(4)
                         playNavSound(SoundEffectConstants.NAVIGATION_RIGHT)
                         return true
                     }
@@ -396,13 +469,14 @@ fun EchoLauncherScreen(
                         if (controllerManager.isConfirmKey(nativeKeyCode)) {
                             playClickSound()
                             when (selectedDockIndex) {
-                                0 -> {
+                                0 -> triggerDeviceOptimization(openModal = true)
+                                1 -> {
                                     isAllAppsOpen = true
                                     currentFocusZone = FocusZone.ALL_APPS_MODAL
                                 }
-                                1 -> repository.launchEchoUpdates()
-                                2 -> repository.launchWifiBtSettings()
-                                3 -> repository.launchSettings()
+                                2 -> repository.launchEchoUpdates()
+                                3 -> repository.launchWifiBtSettings()
+                                4 -> repository.launchSettings()
                             }
                             return true
                         }
@@ -430,7 +504,6 @@ fun EchoLauncherScreen(
         }
     }
 
-    // Always render the Dual-Screen Clamshell UI (Top Screen + Bottom Deck) when Dual Screen Mode is active
     val useSpannedDualScreenLayout = isDualScreenMode
 
     Box(
@@ -466,6 +539,8 @@ fun EchoLauncherScreen(
                             },
                             currentFocusZone = currentFocusZone,
                             powerInfo = powerInfo,
+                            ramUsagePercent = telemetry.ramUsagePercent,
+                            onOptimizeClick = { triggerDeviceOptimization(openModal = true) },
                             isDualScreenMode = isDualScreenMode,
                             onToggleDualScreen = ::toggleDualScreen
                         )
@@ -475,6 +550,12 @@ fun EchoLauncherScreen(
                                     playClickSound()
                                     onRequestDefaultHome()
                                 }
+                            )
+                        }
+                        if (toastNotificationText != null) {
+                            OptimizationToastBanner(
+                                message = toastNotificationText!!,
+                                onClick = { isOptimizerOpen = true }
                             )
                         }
                         Spacer(modifier = Modifier.weight(1f))
@@ -491,8 +572,7 @@ fun EchoLauncherScreen(
                                 playClickSound()
                             },
                             onLaunch = { app ->
-                                playClickSound()
-                                repository.launchApp(app)
+                                launchAppWithOptionalBoost(app)
                             },
                             onOptions = {
                                 playClickSound()
@@ -532,8 +612,7 @@ fun EchoLauncherScreen(
                             playClickSound()
                         },
                         onLaunch = { app ->
-                            playClickSound()
-                            repository.launchApp(app)
+                            launchAppWithOptionalBoost(app)
                         },
                         onToggleAllApps = {
                             isAllAppsOpen = true
@@ -544,6 +623,8 @@ fun EchoLauncherScreen(
                             repository.launchSettings()
                             playClickSound()
                         },
+                        onOptimizeDevice = { triggerDeviceOptimization(openModal = true) },
+                        ramUsagePercent = telemetry.ramUsagePercent,
                         onToggleDualScreenMode = ::toggleDualScreen
                     )
                 }
@@ -565,6 +646,8 @@ fun EchoLauncherScreen(
                     },
                     currentFocusZone = currentFocusZone,
                     powerInfo = powerInfo,
+                    ramUsagePercent = telemetry.ramUsagePercent,
+                    onOptimizeClick = { triggerDeviceOptimization(openModal = true) },
                     isDualScreenMode = isDualScreenMode,
                     onToggleDualScreen = ::toggleDualScreen
                 )
@@ -575,6 +658,13 @@ fun EchoLauncherScreen(
                             playClickSound()
                             onRequestDefaultHome()
                         }
+                    )
+                }
+
+                if (toastNotificationText != null) {
+                    OptimizationToastBanner(
+                        message = toastNotificationText!!,
+                        onClick = { isOptimizerOpen = true }
                     )
                 }
 
@@ -593,8 +683,7 @@ fun EchoLauncherScreen(
                         playClickSound()
                     },
                     onLaunch = { app ->
-                        playClickSound()
-                        repository.launchApp(app)
+                        launchAppWithOptionalBoost(app)
                     },
                     onOptions = {
                         playClickSound()
@@ -616,6 +705,7 @@ fun EchoLauncherScreen(
                     onActionTriggered = { action ->
                         playClickSound()
                         when (action) {
+                            DockAction.OPTIMIZE -> triggerDeviceOptimization(openModal = true)
                             DockAction.ALL_APPS -> {
                                 isAllAppsOpen = true
                                 currentFocusZone = FocusZone.ALL_APPS_MODAL
@@ -634,7 +724,18 @@ fun EchoLauncherScreen(
             isOpen = isDetailsOpen,
             app = activeApp,
             onLaunch = {
-                activeApp?.let { repository.launchApp(it) }
+                activeApp?.let { launchAppWithOptionalBoost(it, forceBoost = false) }
+            },
+            onBoostAndLaunch = {
+                activeApp?.let { launchAppWithOptionalBoost(it, forceBoost = true) }
+            },
+            onToggleFavorite = {
+                activeApp?.let { app ->
+                    playClickSound()
+                    val nowFav = repository.toggleFavorite(app.packageName)
+                    allApps = repository.getCachedApps() ?: allApps
+                    toastNotificationText = if (nowFav) "★ Pinned ${app.label} to Front" else "Removed ${app.label} from Favorites"
+                }
             },
             onDismiss = {
                 isDetailsOpen = false
@@ -651,13 +752,37 @@ fun EchoLauncherScreen(
                 playNavSound(SoundEffectConstants.NAVIGATION_LEFT)
             },
             onLaunch = { app ->
-                playClickSound()
-                repository.launchApp(app)
                 isAllAppsOpen = false
+                launchAppWithOptionalBoost(app)
+            },
+            onRefreshApps = ::refreshAppLibrary,
+            onOptimizeClick = {
+                isAllAppsOpen = false
+                triggerDeviceOptimization(openModal = true)
             },
             onDismiss = {
                 isAllAppsOpen = false
                 currentFocusZone = FocusZone.DOCK
+                playClickSound()
+            }
+        )
+
+        OptimizerModal(
+            isOpen = isOptimizerOpen,
+            telemetry = telemetry,
+            lastResult = lastOptimizationResult,
+            isOptimizing = isOptimizing,
+            autoBoostEnabled = autoBoostEnabled,
+            onToggleAutoBoost = { enabled ->
+                playClickSound()
+                autoBoostEnabled = enabled
+                deviceOptimizer.isAutoBoostEnabled = enabled
+            },
+            onRunOptimization = {
+                triggerDeviceOptimization(openModal = true)
+            },
+            onDismiss = {
+                isOptimizerOpen = false
                 playClickSound()
             }
         )
@@ -675,6 +800,32 @@ fun EchoLauncherScreen(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun OptimizationToastBanner(
+    message: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 24.dp, vertical = 3.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(StatusGreen.copy(alpha = 0.16f))
+            .border(1.dp, StatusGreen.copy(alpha = 0.75f), RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = message,
+            color = StatusGreen,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.ExtraBold,
+            fontFamily = FontFamily.Monospace
+        )
     }
 }
 
@@ -725,29 +876,5 @@ private fun checkIsDefaultLauncher(context: Context): Boolean {
         resolveInfo?.activityInfo?.packageName == context.packageName
     } catch (_: Exception) {
         false
-    }
-}
-
-private fun promptDefaultHomeLauncher(context: Context) {
-    try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
-            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME) && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
-                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-                return
-            }
-        }
-        val settingsIntent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(settingsIntent)
-    } catch (_: Exception) {
-        try {
-            context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        } catch (_: Exception) {}
     }
 }

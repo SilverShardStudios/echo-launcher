@@ -62,6 +62,8 @@ fun DualScreenBottomDeck(
     onLaunch: (AppItem) -> Unit,
     onToggleAllApps: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOptimizeDevice: (() -> Unit)? = null,
+    ramUsagePercent: Int = 42,
     onToggleDualScreenMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -103,7 +105,7 @@ fun DualScreenBottomDeck(
                             .background(StatusGreen)
                     )
                     Text(
-                        text = "RG DS COMMAND DECK // LOWER TOUCH DISPLAY",
+                        text = "RG DS COMMAND DECK // RAM ${ramUsagePercent}%",
                         color = ElectricCyan,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -127,7 +129,12 @@ fun DualScreenBottomDeck(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (isSelected) ElectricCyan else Color.Transparent)
-                                .clickable { perfMode = mode }
+                                .clickable {
+                                    perfMode = mode
+                                    if (mode == "TURBO") {
+                                        onOptimizeDevice?.invoke()
+                                    }
+                                }
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
@@ -170,7 +177,7 @@ fun DualScreenBottomDeck(
                         }
                         Column {
                             Text(
-                                text = focusedApp.label,
+                                text = if (focusedApp.isFavorite) "★ ${focusedApp.label}" else focusedApp.label,
                                 color = PureWhite,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -246,6 +253,14 @@ fun DualScreenBottomDeck(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (onOptimizeDevice != null) {
+                        DeckActionPill(
+                            label = "Boost RAM",
+                            icon = "⚡",
+                            accentColor = StatusGreen,
+                            onClick = onOptimizeDevice
+                        )
+                    }
                     DeckActionPill(
                         label = "All Apps",
                         icon = "▦",
@@ -258,7 +273,7 @@ fun DualScreenBottomDeck(
                     )
                     if (onToggleDualScreenMode != null) {
                         DeckActionPill(
-                            label = "1x / 2x Screen",
+                            label = "1x / 2x",
                             icon = "⧉",
                             accentColor = ElectricCyan,
                             onClick = onToggleDualScreenMode
@@ -290,11 +305,15 @@ fun DualScreenBottomDeck(
                     DeckIconAction(
                         icon = "⚡",
                         onClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_DISPLAY_SETTINGS).apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                })
-                            } catch (_: Exception) {}
+                            if (onOptimizeDevice != null) {
+                                onOptimizeDevice()
+                            } else {
+                                try {
+                                    context.startActivity(Intent(Settings.ACTION_DISPLAY_SETTINGS).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    })
+                                } catch (_: Exception) {}
+                            }
                         }
                     )
                 }
@@ -352,7 +371,7 @@ private fun QuickDeckAppCard(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = app.label,
+            text = if (app.isFavorite) "★ ${app.label}" else app.label,
             color = if (isSelected) ElectricCyan else PlatinumWhite,
             fontSize = 9.5.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -375,15 +394,15 @@ private fun DeckActionPill(
             .background(SurfaceCardElevated)
             .border(1.dp, SurfaceBorder, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Text(text = icon, fontSize = 11.sp, color = accentColor)
         Text(
             text = label,
             color = PlatinumWhite,
-            fontSize = 11.sp,
+            fontSize = 10.5.sp,
             fontWeight = FontWeight.SemiBold
         )
     }

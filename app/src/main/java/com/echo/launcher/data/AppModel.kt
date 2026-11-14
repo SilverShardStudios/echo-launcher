@@ -19,7 +19,8 @@ data class AppItem(
     val isMedia: Boolean,
     val isEmulator: Boolean,
     val systemTag: String,
-    val accentColor: Color
+    val accentColor: Color,
+    val isFavorite: Boolean = false
 )
 
 enum class LauncherTab {
@@ -35,6 +36,7 @@ enum class FocusZone {
 }
 
 enum class DockAction {
+    OPTIMIZE,
     ALL_APPS,
     ECHO_UPDATES,
     WIFI_BT,

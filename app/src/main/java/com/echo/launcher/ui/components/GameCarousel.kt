@@ -271,6 +271,25 @@ private fun ConsoleGameCard(
             )
         }
 
+        if (app.isFavorite) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color(0xFFEAB308).copy(alpha = 0.22f))
+                    .border(0.8.dp, Color(0xFFEAB308), RoundedCornerShape(5.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    text = "★",
+                    color = Color(0xFFEAB308),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+
         if (isSelected) {
             Box(
                 modifier = Modifier
