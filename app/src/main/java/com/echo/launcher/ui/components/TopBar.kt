@@ -62,6 +62,7 @@ fun TopBar(
     powerInfo: PowerInfo,
     ramUsagePercent: Int = 42,
     onOptimizeClick: (() -> Unit)? = null,
+    onOpenUiHub: (() -> Unit)? = null,
     isDualScreenMode: Boolean = false,
     onToggleDualScreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -106,11 +107,15 @@ fun TopBar(
             )
         }
 
-        // Right: 1-Tap Optimizer Button + RG DS Dual Screen Toggle + Controller + Network + Power + Clock
+        // Right: UI Hub + 1-Tap Optimizer Button + RG DS Dual Screen Toggle + Controller + Network + Power + Clock
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (onOpenUiHub != null) {
+                UiHubBadge(onClick = onOpenUiHub)
+            }
+
             if (onOptimizeClick != null) {
                 QuickBoostBadge(
                     ramUsagePercent = ramUsagePercent,
@@ -140,6 +145,28 @@ fun TopBar(
                 letterSpacing = 0.5.sp
             )
         }
+    }
+}
+
+@Composable
+private fun UiHubBadge(
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFF59E0B).copy(alpha = 0.16f))
+            .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = "❖ UI HUB",
+            color = Color(0xFFF59E0B),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            fontFamily = FontFamily.Monospace
+        )
     }
 }
 

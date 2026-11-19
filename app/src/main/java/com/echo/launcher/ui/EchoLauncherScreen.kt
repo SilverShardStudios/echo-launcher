@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.AppRepository
+import com.echo.launcher.data.ConsoleUiStyle
 import com.echo.launcher.data.DeviceOptimizer
 import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.DualScreenManager
@@ -62,6 +64,8 @@ import com.echo.launcher.data.HandheldControllerManager
 import com.echo.launcher.data.LauncherTab
 import com.echo.launcher.data.OptimizationResult
 import com.echo.launcher.data.PowerInfo
+import com.echo.launcher.data.UiThemePack
+import com.echo.launcher.data.UiThemeRepository
 import com.echo.launcher.ui.components.AllAppsModal
 import com.echo.launcher.ui.components.AmbientBackground
 import com.echo.launcher.ui.components.BootSequenceScreen
@@ -69,8 +73,12 @@ import com.echo.launcher.ui.components.ConsoleFooter
 import com.echo.launcher.ui.components.DualScreenBottomDeck
 import com.echo.launcher.ui.components.GameCarousel
 import com.echo.launcher.ui.components.GameDetailsModal
+import com.echo.launcher.ui.components.HybridPortableDeckLayout
+import com.echo.launcher.ui.components.NextGenHorizonLayout
 import com.echo.launcher.ui.components.OptimizerModal
+import com.echo.launcher.ui.components.StereoscopicDual3DLayout
 import com.echo.launcher.ui.components.TopBar
+import com.echo.launcher.ui.components.UiHubModal
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.PureWhite
 import com.echo.launcher.ui.theme.StatusGreen
@@ -96,12 +104,12 @@ fun EchoLauncherScreen(
     val controllerManager = remember { HandheldControllerManager() }
     val dualScreenManager = remember { DualScreenManager(context) }
     val deviceOptimizer = remember { DeviceOptimizer(context) }
+    val uiThemeRepository = remember { UiThemeRepository(context) }
 
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
     val screenHeight = configuration.screenHeightDp.dp
 
-    // Auto-detect dual screen spanned clamshells (Anbernic RG DS, vertical dual-screen span, or secondary display)
     val isTallSpannedDisplay = screenHeight > (screenWidth * 0.95f)
     var isDualScreenMode by remember(isTallSpannedDisplay, dualScreenManager.hasPhysicalSecondaryDisplay) {
         mutableStateOf(
@@ -126,6 +134,14 @@ fun EchoLauncherScreen(
     var isAllAppsOpen by remember { mutableStateOf(false) }
     var isDetailsOpen by remember { mutableStateOf(false) }
     var isOptimizerOpen by remember { mutableStateOf(false) }
+    var isUiHubOpen by remember { mutableStateOf(false) }
+
+    val uiPacks = remember { uiThemeRepository.availablePacks }
+    var downloadedPackIds by remember { mutableStateOf(uiThemeRepository.getDownloadedIds()) }
+    var activeUiStyle by remember { mutableStateOf(uiThemeRepository.getActiveUiStyle()) }
+    var selectedUiHubIndex by remember { mutableIntStateOf(0) }
+    var downloadingPackId by remember { mutableStateOf<String?>(null) }
+    var downloadProgress by remember { mutableFloatStateOf(0f) }
 
     var telemetry by remember { mutableStateOf(deviceOptimizer.getTelemetry()) }
     var isOptimizing by remember { mutableStateOf(false) }
@@ -141,6 +157,56 @@ fun EchoLauncherScreen(
 
     fun playNavSound(direction: Int) {
         try { view.playSoundEffect(direction) } catch (_: Exception) {}
+    }
+
+    fun handleDownloadOrApplyUiPack(pack: UiThemePack) {
+        playClickSound()
+        if (downloadingPackId != null) return
+
+        val isAlreadyDownloaded = downloadedPackIds.contains(pack.id)
+        if (isAlreadyDownloaded) {
+            activeUiStyle = pack.style
+            uiThemeRepository.setActiveUiStyle(pack.style)
+            toastNotificationText = "❖ Activated ${pack.title}"
+            isUiHubOpen = false
+            coroutineScope.launch {
+                delay(2800)
+                if (toastNotificationText == "❖ Activated ${pack.title}") {
+                    toastNotificationText = null
+                }
+            }
+        } else {
+            coroutineScope.launch {
+                downloadingPackId = pack.id
+                downloadProgress = 0.08f
+                val steps = 8
+                for (step in 1..steps) {
+                    delay(75)
+                    downloadProgress = (step.toFloat() / steps.toFloat()).coerceIn(0.1f, 1.0f)
+                }
+                downloadedPackIds = uiThemeRepository.markPackDownloaded(pack.id)
+                activeUiStyle = pack.style
+                uiThemeRepository.setActiveUiStyle(pack.style)
+                downloadingPackId = null
+                downloadProgress = 0f
+                toastNotificationText = "⬇ Installed & Applied ${pack.title}"
+                delay(2800)
+                if (toastNotificationText == "⬇ Installed & Applied ${pack.title}") {
+                    toastNotificationText = null
+                }
+            }
+        }
+    }
+
+    fun handleUninstallUiPack(pack: UiThemePack) {
+        playClickSound()
+        if (pack.isBuiltIn) return
+        downloadedPackIds = uiThemeRepository.removePackDownload(pack.id)
+        if (activeUiStyle == pack.style) {
+            activeUiStyle = ConsoleUiStyle.ECHO_DEFAULT
+            uiThemeRepository.setActiveUiStyle(ConsoleUiStyle.ECHO_DEFAULT)
+        }
+        toastNotificationText = "Removed ${pack.title} Pack"
     }
 
     fun triggerDeviceOptimization(openModal: Boolean = true, onDone: (() -> Unit)? = null) {
@@ -260,10 +326,28 @@ fun EchoLauncherScreen(
         playClickSound()
     }
 
+    fun triggerDockAction(action: DockAction) {
+        playClickSound()
+        when (action) {
+            DockAction.OPTIMIZE -> triggerDeviceOptimization(openModal = true)
+            DockAction.UI_HUB -> isUiHubOpen = true
+            DockAction.ALL_APPS -> {
+                isAllAppsOpen = true
+                currentFocusZone = FocusZone.ALL_APPS_MODAL
+            }
+            DockAction.ECHO_UPDATES -> repository.launchEchoUpdates()
+            DockAction.WIFI_BT -> repository.launchWifiBtSettings()
+            DockAction.SETTINGS -> repository.launchSettings()
+        }
+    }
+
     BackHandler(enabled = true) {
         if (isBooting) {
             isBooting = false
             hasShownBootThisProcess = true
+        } else if (isUiHubOpen) {
+            isUiHubOpen = false
+            playClickSound()
         } else if (isOptimizerOpen) {
             isOptimizerOpen = false
             playClickSound()
@@ -285,6 +369,33 @@ fun EchoLauncherScreen(
             hasShownBootThisProcess = true
             playClickSound()
             return true
+        }
+
+        if (isUiHubOpen) {
+            when (nativeKeyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    selectedUiHubIndex = (selectedUiHubIndex - 1).coerceAtLeast(0)
+                    playNavSound(SoundEffectConstants.NAVIGATION_LEFT)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    selectedUiHubIndex = (selectedUiHubIndex + 1).coerceAtMost(uiPacks.size - 1)
+                    playNavSound(SoundEffectConstants.NAVIGATION_RIGHT)
+                    return true
+                }
+                else -> {
+                    if (controllerManager.isCancelKey(nativeKeyCode)) {
+                        isUiHubOpen = false
+                        playClickSound()
+                        return true
+                    }
+                    if (controllerManager.isConfirmKey(nativeKeyCode)) {
+                        uiPacks.getOrNull(selectedUiHubIndex)?.let { handleDownloadOrApplyUiPack(it) }
+                        return true
+                    }
+                }
+            }
+            return false
         }
 
         if (isOptimizerOpen) {
@@ -456,7 +567,7 @@ fun EchoLauncherScreen(
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        selectedDockIndex = (selectedDockIndex + 1).coerceAtMost(4)
+                        selectedDockIndex = (selectedDockIndex + 1).coerceAtMost(5)
                         playNavSound(SoundEffectConstants.NAVIGATION_RIGHT)
                         return true
                     }
@@ -467,17 +578,8 @@ fun EchoLauncherScreen(
                     }
                     else -> {
                         if (controllerManager.isConfirmKey(nativeKeyCode)) {
-                            playClickSound()
-                            when (selectedDockIndex) {
-                                0 -> triggerDeviceOptimization(openModal = true)
-                                1 -> {
-                                    isAllAppsOpen = true
-                                    currentFocusZone = FocusZone.ALL_APPS_MODAL
-                                }
-                                2 -> repository.launchEchoUpdates()
-                                3 -> repository.launchWifiBtSettings()
-                                4 -> repository.launchSettings()
-                            }
+                            val actions = DockAction.entries
+                            actions.getOrNull(selectedDockIndex)?.let { triggerDockAction(it) }
                             return true
                         }
                     }
@@ -506,6 +608,132 @@ fun EchoLauncherScreen(
 
     val useSpannedDualScreenLayout = isDualScreenMode
 
+    @Composable
+    fun RenderActiveConsoleBody(modifier: Modifier = Modifier) {
+        when (activeUiStyle) {
+            ConsoleUiStyle.NEXTGEN_MEDIA_BAR -> {
+                NextGenHorizonLayout(
+                    apps = currentTabApps,
+                    selectedIndex = activeCarouselIndex,
+                    onIndexSelected = { index ->
+                        if (selectedTab == LauncherTab.GAMES) selectedGameIndex = index else selectedMediaIndex = index
+                        currentFocusZone = FocusZone.CAROUSEL
+                        playClickSound()
+                    },
+                    onLaunch = { launchAppWithOptionalBoost(it) },
+                    onOptions = {
+                        playClickSound()
+                        isDetailsOpen = true
+                    },
+                    onOpenUiHub = {
+                        playClickSound()
+                        isUiHubOpen = true
+                    },
+                    onOptimize = { triggerDeviceOptimization(openModal = true) },
+                    onAllApps = {
+                        playClickSound()
+                        isAllAppsOpen = true
+                        currentFocusZone = FocusZone.ALL_APPS_MODAL
+                    },
+                    modifier = modifier
+                )
+            }
+            ConsoleUiStyle.HYBRID_DECK -> {
+                HybridPortableDeckLayout(
+                    apps = currentTabApps,
+                    selectedIndex = activeCarouselIndex,
+                    onIndexSelected = { index ->
+                        if (selectedTab == LauncherTab.GAMES) selectedGameIndex = index else selectedMediaIndex = index
+                        currentFocusZone = FocusZone.CAROUSEL
+                        playClickSound()
+                    },
+                    onLaunch = { launchAppWithOptionalBoost(it) },
+                    onOptions = {
+                        playClickSound()
+                        isDetailsOpen = true
+                    },
+                    selectedDockIndex = selectedDockIndex,
+                    currentFocusZone = currentFocusZone,
+                    onDockActionSelected = { index ->
+                        selectedDockIndex = index
+                        currentFocusZone = FocusZone.DOCK
+                        playClickSound()
+                    },
+                    onDockActionTriggered = ::triggerDockAction,
+                    modifier = modifier
+                )
+            }
+            ConsoleUiStyle.DUAL_SCREEN_3D -> {
+                StereoscopicDual3DLayout(
+                    apps = currentTabApps,
+                    selectedIndex = activeCarouselIndex,
+                    onIndexSelected = { index ->
+                        if (selectedTab == LauncherTab.GAMES) selectedGameIndex = index else selectedMediaIndex = index
+                        currentFocusZone = FocusZone.CAROUSEL
+                        playClickSound()
+                    },
+                    onLaunch = { launchAppWithOptionalBoost(it) },
+                    onOptions = {
+                        playClickSound()
+                        isDetailsOpen = true
+                    },
+                    onOpenUiHub = {
+                        playClickSound()
+                        isUiHubOpen = true
+                    },
+                    onOptimize = { triggerDeviceOptimization(openModal = true) },
+                    modifier = modifier
+                )
+            }
+            ConsoleUiStyle.ECHO_DEFAULT -> {
+                Column(
+                    modifier = modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    GameCarousel(
+                        apps = currentTabApps,
+                        selectedIndex = activeCarouselIndex,
+                        onIndexSelected = { index ->
+                            if (selectedTab == LauncherTab.GAMES) {
+                                selectedGameIndex = index
+                            } else {
+                                selectedMediaIndex = index
+                            }
+                            currentFocusZone = FocusZone.CAROUSEL
+                            playClickSound()
+                        },
+                        onLaunch = { app ->
+                            launchAppWithOptionalBoost(app)
+                        },
+                        onOptions = {
+                            playClickSound()
+                            isDetailsOpen = true
+                        },
+                        currentFocusZone = currentFocusZone,
+                        gamepadLayout = gamepadLayout
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    if (!useSpannedDualScreenLayout) {
+                        ConsoleFooter(
+                            selectedActionIndex = selectedDockIndex,
+                            onActionSelected = { index ->
+                                selectedDockIndex = index
+                                currentFocusZone = FocusZone.DOCK
+                                playClickSound()
+                            },
+                            onActionTriggered = ::triggerDockAction,
+                            currentFocusZone = currentFocusZone
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -519,7 +747,7 @@ fun EchoLauncherScreen(
         if (useSpannedDualScreenLayout) {
             // ANBERNIC RG DS / DUAL-SCREEN SPANNED CLAMSHELL MODE (Covers Both Screens)
             Column(modifier = Modifier.fillMaxSize()) {
-                // UPPER SCREEN: Game Showcase & Horizontal Carousel
+                // UPPER SCREEN: Active Console Shell
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -541,6 +769,10 @@ fun EchoLauncherScreen(
                             powerInfo = powerInfo,
                             ramUsagePercent = telemetry.ramUsagePercent,
                             onOptimizeClick = { triggerDeviceOptimization(openModal = true) },
+                            onOpenUiHub = {
+                                playClickSound()
+                                isUiHubOpen = true
+                            },
                             isDualScreenMode = isDualScreenMode,
                             onToggleDualScreen = ::toggleDualScreen
                         )
@@ -558,30 +790,8 @@ fun EchoLauncherScreen(
                                 onClick = { isOptimizerOpen = true }
                             )
                         }
-                        Spacer(modifier = Modifier.weight(1f))
-                        GameCarousel(
-                            apps = currentTabApps,
-                            selectedIndex = activeCarouselIndex,
-                            onIndexSelected = { index ->
-                                if (selectedTab == LauncherTab.GAMES) {
-                                    selectedGameIndex = index
-                                } else {
-                                    selectedMediaIndex = index
-                                }
-                                currentFocusZone = FocusZone.CAROUSEL
-                                playClickSound()
-                            },
-                            onLaunch = { app ->
-                                launchAppWithOptionalBoost(app)
-                            },
-                            onOptions = {
-                                playClickSound()
-                                isDetailsOpen = true
-                            },
-                            currentFocusZone = currentFocusZone,
-                            gamepadLayout = gamepadLayout
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
+
+                        RenderActiveConsoleBody(modifier = Modifier.weight(1f))
                     }
                 }
 
@@ -624,6 +834,10 @@ fun EchoLauncherScreen(
                             playClickSound()
                         },
                         onOptimizeDevice = { triggerDeviceOptimization(openModal = true) },
+                        onOpenUiHub = {
+                            playClickSound()
+                            isUiHubOpen = true
+                        },
                         ramUsagePercent = telemetry.ramUsagePercent,
                         onToggleDualScreenMode = ::toggleDualScreen
                     )
@@ -648,6 +862,10 @@ fun EchoLauncherScreen(
                     powerInfo = powerInfo,
                     ramUsagePercent = telemetry.ramUsagePercent,
                     onOptimizeClick = { triggerDeviceOptimization(openModal = true) },
+                    onOpenUiHub = {
+                        playClickSound()
+                        isUiHubOpen = true
+                    },
                     isDualScreenMode = isDualScreenMode,
                     onToggleDualScreen = ::toggleDualScreen
                 )
@@ -668,55 +886,7 @@ fun EchoLauncherScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
-
-                GameCarousel(
-                    apps = currentTabApps,
-                    selectedIndex = activeCarouselIndex,
-                    onIndexSelected = { index ->
-                        if (selectedTab == LauncherTab.GAMES) {
-                            selectedGameIndex = index
-                        } else {
-                            selectedMediaIndex = index
-                        }
-                        currentFocusZone = FocusZone.CAROUSEL
-                        playClickSound()
-                    },
-                    onLaunch = { app ->
-                        launchAppWithOptionalBoost(app)
-                    },
-                    onOptions = {
-                        playClickSound()
-                        isDetailsOpen = true
-                    },
-                    currentFocusZone = currentFocusZone,
-                    gamepadLayout = gamepadLayout
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                ConsoleFooter(
-                    selectedActionIndex = selectedDockIndex,
-                    onActionSelected = { index ->
-                        selectedDockIndex = index
-                        currentFocusZone = FocusZone.DOCK
-                        playClickSound()
-                    },
-                    onActionTriggered = { action ->
-                        playClickSound()
-                        when (action) {
-                            DockAction.OPTIMIZE -> triggerDeviceOptimization(openModal = true)
-                            DockAction.ALL_APPS -> {
-                                isAllAppsOpen = true
-                                currentFocusZone = FocusZone.ALL_APPS_MODAL
-                            }
-                            DockAction.ECHO_UPDATES -> repository.launchEchoUpdates()
-                            DockAction.WIFI_BT -> repository.launchWifiBtSettings()
-                            DockAction.SETTINGS -> repository.launchSettings()
-                        }
-                    },
-                    currentFocusZone = currentFocusZone
-                )
+                RenderActiveConsoleBody(modifier = Modifier.weight(1f))
             }
         }
 
@@ -783,6 +953,26 @@ fun EchoLauncherScreen(
             },
             onDismiss = {
                 isOptimizerOpen = false
+                playClickSound()
+            }
+        )
+
+        UiHubModal(
+            isOpen = isUiHubOpen,
+            packs = uiPacks,
+            downloadedPackIds = downloadedPackIds,
+            activeStyle = activeUiStyle,
+            downloadingPackId = downloadingPackId,
+            downloadProgress = downloadProgress,
+            selectedIndex = selectedUiHubIndex,
+            onSelectIndex = { idx ->
+                selectedUiHubIndex = idx
+                playNavSound(SoundEffectConstants.NAVIGATION_LEFT)
+            },
+            onDownloadOrApply = ::handleDownloadOrApplyUiPack,
+            onUninstallPack = ::handleUninstallUiPack,
+            onDismiss = {
+                isUiHubOpen = false
                 playClickSound()
             }
         )

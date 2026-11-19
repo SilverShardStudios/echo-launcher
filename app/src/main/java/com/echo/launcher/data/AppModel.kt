@@ -37,8 +37,31 @@ enum class FocusZone {
 
 enum class DockAction {
     OPTIMIZE,
+    UI_HUB,
     ALL_APPS,
     ECHO_UPDATES,
     WIFI_BT,
     SETTINGS
 }
+
+enum class ConsoleUiStyle {
+    ECHO_DEFAULT,
+    NEXTGEN_MEDIA_BAR,
+    HYBRID_DECK,
+    DUAL_SCREEN_3D
+}
+
+@Immutable
+data class UiThemePack(
+    val style: ConsoleUiStyle,
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val description: String,
+    val version: String,
+    val sizeText: String,
+    val primaryAccent: Color,
+    val secondaryAccent: Color,
+    val layoutTag: String,
+    val isBuiltIn: Boolean = false
+)

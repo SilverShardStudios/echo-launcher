@@ -54,6 +54,7 @@ fun SystemDock(
 
     val actions = listOf(
         DockAction.OPTIMIZE to "Boost RAM",
+        DockAction.UI_HUB to "UI Hub",
         DockAction.ALL_APPS to "All Apps",
         DockAction.ECHO_UPDATES to "ECHO Updates",
         DockAction.WIFI_BT to "Wi-Fi & BT",
@@ -65,8 +66,8 @@ fun SystemDock(
             .clip(RoundedCornerShape(28.dp))
             .background(SurfaceCard.copy(alpha = 0.65f))
             .border(1.dp, SurfaceCardBorder, RoundedCornerShape(28.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         actions.forEachIndexed { index, (action, label) ->
@@ -95,7 +96,12 @@ private fun DockItemButton(
 ) {
     val isHighlighted = isSelected && isDockFocused
     val isOptimizeBtn = action == DockAction.OPTIMIZE
-    val accentTint = if (isOptimizeBtn) StatusGreen else ElectricCyan
+    val isUiHubBtn = action == DockAction.UI_HUB
+    val accentTint = when {
+        isOptimizeBtn -> StatusGreen
+        isUiHubBtn -> Color(0xFFF59E0B)
+        else -> ElectricCyan
+    }
 
     val scale by animateFloatAsState(
         targetValue = if (isHighlighted) 1.08f else 1.0f,
@@ -108,6 +114,7 @@ private fun DockItemButton(
             isHighlighted -> accentTint
             isSelected -> accentTint.copy(alpha = 0.55f)
             isOptimizeBtn -> StatusGreen.copy(alpha = 0.40f)
+            isUiHubBtn -> Color(0xFFF59E0B).copy(alpha = 0.45f)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
@@ -119,6 +126,7 @@ private fun DockItemButton(
             isHighlighted -> accentTint.copy(alpha = 0.22f)
             isSelected -> Color.White.copy(alpha = 0.08f)
             isOptimizeBtn -> StatusGreen.copy(alpha = 0.12f)
+            isUiHubBtn -> Color(0xFFF59E0B).copy(alpha = 0.12f)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
@@ -141,13 +149,14 @@ private fun DockItemButton(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         val iconColor = when {
             isHighlighted -> accentTint
             isOptimizeBtn -> StatusGreen
+            isUiHubBtn -> Color(0xFFF59E0B)
             isSelected -> PureWhite
             else -> TextMuted
         }
@@ -160,8 +169,8 @@ private fun DockItemButton(
         Text(
             text = label,
             color = iconColor,
-            fontSize = 11.5.sp,
-            fontWeight = if (isHighlighted || isSelected || isOptimizeBtn) FontWeight.Bold else FontWeight.Medium
+            fontSize = 11.sp,
+            fontWeight = if (isHighlighted || isSelected || isOptimizeBtn || isUiHubBtn) FontWeight.Bold else FontWeight.Medium
         )
 
         if (isHighlighted) {
@@ -185,10 +194,9 @@ private fun DockItemButton(
 
 @Composable
 private fun DockIconCanvas(action: DockAction, tint: Color) {
-    Canvas(modifier = Modifier.size(17.dp)) {
+    Canvas(modifier = Modifier.size(16.dp)) {
         when (action) {
             DockAction.OPTIMIZE -> {
-                // Lightning bolt inside power ring
                 val bolt = Path().apply {
                     moveTo(size.width * 0.58f, size.height * 0.08f)
                     lineTo(size.width * 0.22f, size.height * 0.54f)
@@ -199,6 +207,18 @@ private fun DockIconCanvas(action: DockAction, tint: Color) {
                     close()
                 }
                 drawPath(path = bolt, color = tint)
+            }
+            DockAction.UI_HUB -> {
+                // Diamond prism / theme layers icon
+                val diamond = Path().apply {
+                    moveTo(size.width * 0.50f, size.height * 0.08f)
+                    lineTo(size.width * 0.92f, size.height * 0.50f)
+                    lineTo(size.width * 0.50f, size.height * 0.92f)
+                    lineTo(size.width * 0.08f, size.height * 0.50f)
+                    close()
+                }
+                drawPath(path = diamond, color = tint, style = Stroke(width = 1.6.dp.toPx()))
+                drawCircle(color = tint, radius = size.width * 0.15f)
             }
             DockAction.ALL_APPS -> {
                 val tileSize = size.width * 0.38f

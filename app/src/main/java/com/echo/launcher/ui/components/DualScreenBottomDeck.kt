@@ -63,6 +63,7 @@ fun DualScreenBottomDeck(
     onToggleAllApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOptimizeDevice: (() -> Unit)? = null,
+    onOpenUiHub: (() -> Unit)? = null,
     ramUsagePercent: Int = 42,
     onToggleDualScreenMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -259,6 +260,14 @@ fun DualScreenBottomDeck(
                             icon = "⚡",
                             accentColor = StatusGreen,
                             onClick = onOptimizeDevice
+                        )
+                    }
+                    if (onOpenUiHub != null) {
+                        DeckActionPill(
+                            label = "UI Hub",
+                            icon = "❖",
+                            accentColor = Color(0xFFF59E0B),
+                            onClick = onOpenUiHub
                         )
                     }
                     DeckActionPill(
