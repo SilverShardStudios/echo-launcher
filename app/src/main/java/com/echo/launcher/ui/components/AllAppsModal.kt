@@ -27,20 +27,24 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,19 +53,47 @@ import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.ObsidianBackground
+import com.echo.launcher.ui.theme.PlatinumWhite
 import com.echo.launcher.ui.theme.PureWhite
 import com.echo.launcher.ui.theme.StatusGreen
 import com.echo.launcher.ui.theme.SurfaceCard
 import com.echo.launcher.ui.theme.SurfaceCardBorder
+import com.echo.launcher.ui.theme.SurfaceCardElevated
 import com.echo.launcher.ui.theme.TextMuted
+
+val ALL_APPS_FILTERS = listOf("ALL", "GAMES", "EMULATORS", "MEDIA", "FAVORITES")
+
+fun filterAllApps(apps: List<AppItem>, filter: String, query: String): List<AppItem> {
+    val byCategory = when (filter) {
+        "GAMES" -> apps.filter { it.isGame }
+        "EMULATORS" -> apps.filter { it.isEmulator }
+        "MEDIA" -> apps.filter { it.isMedia }
+        "FAVORITES" -> apps.filter { it.isFavorite }
+        else -> apps
+    }
+    val q = query.trim().lowercase()
+    return if (q.isEmpty()) byCategory else byCategory.filter {
+        it.label.lowercase().contains(q) ||
+            it.packageName.lowercase().contains(q) ||
+            it.systemTag.lowercase().contains(q)
+    }
+}
 
 @Composable
 fun AllAppsModal(
     isOpen: Boolean,
-    apps: List<AppItem>,
+    filteredApps: List<AppItem>,
+    selectedFilter: String,
+    onFilterChange: (String) -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
+    sortByRecent: Boolean,
+    onToggleSort: () -> Unit,
     selectedIndex: Int,
     onIndexSelected: (Int) -> Unit,
     onLaunch: (AppItem) -> Unit,
+    onOptions: ((AppItem) -> Unit)? = null,
     onRefreshApps: (() -> Unit)? = null,
     onOptimizeClick: (() -> Unit)? = null,
     onDismiss: () -> Unit,
@@ -73,17 +105,8 @@ fun AllAppsModal(
         exit = fadeOut(tween(200)),
         modifier = modifier.fillMaxSize()
     ) {
-        var filterCategory by remember { mutableStateOf("ALL") }
-        val filteredApps = remember(apps, filterCategory) {
-            when (filterCategory) {
-                "GAMES" -> apps.filter { it.isGame }
-                "EMULATORS" -> apps.filter { it.isEmulator }
-                "FAVORITES" -> apps.filter { it.isFavorite }
-                else -> apps
-            }
-        }
-
         val gridState = rememberLazyGridState()
+        val focusManager = LocalFocusManager.current
 
         LaunchedEffect(selectedIndex, filteredApps.size) {
             if (filteredApps.isNotEmpty() && selectedIndex in filteredApps.indices) {
@@ -94,13 +117,16 @@ fun AllAppsModal(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ObsidianBackground.copy(alpha = 0.94f))
+                .background(ObsidianBackground.copy(alpha = 0.95f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
+                    onClick = {
+                        focusManager.clearFocus()
+                        onDismiss()
+                    }
                 )
-                .padding(horizontal = 36.dp, vertical = 22.dp)
+                .padding(horizontal = 32.dp, vertical = 18.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -108,10 +134,10 @@ fun AllAppsModal(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {} // Consume inner click
+                        onClick = { focusManager.clearFocus() } // Consume inner click & clear text focus
                     )
             ) {
-                // Header
+                // Header Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -119,10 +145,10 @@ fun AllAppsModal(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "ALL INSTALLED APPS",
+                            text = "LIBRARY",
                             color = PureWhite,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Black,
@@ -143,28 +169,45 @@ fun AllAppsModal(
                         }
 
                         // Category Filter Pills
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("ALL", "GAMES", "EMULATORS", "FAVORITES").forEach { cat ->
-                                val active = filterCategory == cat
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "L1",
+                                color = TextMuted,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            ALL_APPS_FILTERS.forEach { cat ->
+                                val active = selectedFilter == cat
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(if (active) ElectricCyan else SurfaceCard)
                                         .border(1.dp, if (active) ElectricCyan else SurfaceCardBorder, RoundedCornerShape(12.dp))
                                         .clickable {
-                                            filterCategory = cat
-                                            onIndexSelected(0)
+                                            focusManager.clearFocus()
+                                            onFilterChange(cat)
                                         }
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        .padding(horizontal = 9.dp, vertical = 4.dp)
                                 ) {
                                     Text(
                                         text = cat,
                                         color = if (active) Color.Black else TextMuted,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
+                            Text(
+                                text = "R1",
+                                color = TextMuted,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                     }
 
@@ -180,7 +223,7 @@ fun AllAppsModal(
                                     .background(StatusGreen.copy(alpha = 0.16f))
                                     .border(1.dp, StatusGreen, RoundedCornerShape(14.dp))
                                     .clickable(onClick = onOptimizeClick)
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
                                 Text(
                                     text = "⚡ Boost RAM",
@@ -198,7 +241,7 @@ fun AllAppsModal(
                                     .background(SurfaceCard)
                                     .border(1.dp, SurfaceCardBorder, RoundedCornerShape(14.dp))
                                     .clickable(onClick = onRefreshApps)
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
                                 Text(
                                     text = "↻ Rescan",
@@ -215,7 +258,7 @@ fun AllAppsModal(
                                 .background(SurfaceCard)
                                 .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp))
                                 .clickable(onClick = onDismiss)
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -243,27 +286,158 @@ fun AllAppsModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // App Grid
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 100.dp),
-                    state = gridState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                // Search Bar + Sort Toggle Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    itemsIndexed(filteredApps, key = { _, it -> it.id }) { index, item ->
-                        val isSelected = index == selectedIndex
-                        AllAppsGridItem(
-                            app = item,
-                            isSelected = isSelected,
-                            onClick = {
-                                onIndexSelected(index)
-                                onLaunch(item)
-                            }
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SurfaceCardElevated)
+                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "⌕",
+                            color = ElectricCyan,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
                         )
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Search games, emulators, or packages...",
+                                    color = TextMuted,
+                                    fontSize = 12.5.sp
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = PureWhite,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                cursorBrush = SolidColor(ElectricCyan),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onFocusChanged { onSearchFocusChanged(it.isFocused) }
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "✕",
+                                color = PlatinumWhite,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.clickable {
+                                    onSearchQueryChange("")
+                                    focusManager.clearFocus()
+                                }
+                            )
+                        }
+                    }
+
+                    // Sort Toggle Pill: Recent / A-Z
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SurfaceCardElevated)
+                            .border(1.dp, ElectricCyan.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                            .clickable(onClick = onToggleSort)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = if (sortByRecent) "🕒 Recent First" else "A–Z Sorted",
+                            color = ElectricCyan,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // App Grid or Empty State
+                if (filteredApps.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No apps match your filter or search",
+                            color = TextMuted,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 100.dp),
+                        state = gridState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        itemsIndexed(filteredApps, key = { _, it -> it.id }) { index, item ->
+                            val isSelected = index == selectedIndex
+                            AllAppsGridItem(
+                                app = item,
+                                isSelected = isSelected,
+                                onClick = {
+                                    focusManager.clearFocus()
+                                    onIndexSelected(index)
+                                    onLaunch(item)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Bottom Controller Legend Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "[A] Launch  •  [Y] Options / Pin  •  [L1/R1] Category  •  [B] Close",
+                        color = TextMuted,
+                        fontSize = 10.5.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (onOptions != null && filteredApps.isNotEmpty()) {
+                        val currentItem = filteredApps.getOrNull(selectedIndex)
+                        if (currentItem != null) {
+                            Text(
+                                text = "⋯ Options for ${currentItem.label}",
+                                color = ElectricCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable {
+                                    focusManager.clearFocus()
+                                    onOptions(currentItem)
+                                }
+                            )
+                        }
                     }
                 }
             }

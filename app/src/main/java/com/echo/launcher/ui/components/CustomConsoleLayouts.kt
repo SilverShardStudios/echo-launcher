@@ -13,7 +13,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,8 +39,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,12 +48,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -69,8 +63,13 @@ import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.AppItem
 import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.FocusZone
+import com.echo.launcher.data.GameStats
+import com.echo.launcher.data.GamepadLayout
 import com.echo.launcher.data.LauncherTab
 import com.echo.launcher.data.PowerInfo
+import com.echo.launcher.data.formatDate
+import com.echo.launcher.data.formatPlaytime
+import com.echo.launcher.data.formatRelativeTime
 import com.echo.launcher.ui.theme.ElectricCyan
 import com.echo.launcher.ui.theme.PlatinumWhite
 import com.echo.launcher.ui.theme.PureWhite
@@ -84,23 +83,23 @@ import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 
 /**
  * ============================================================================================
  * 1. HORIZON 5 NEXT-GEN LIVING-ROOM CONSOLE UI (FULL-SCREEN REPLACEMENT)
- * Authentic next-gen living-room console home screen:
- * - Top Header: "Games" (bright white bold) | "Media" (dimmed gray) on the left;
- *   Search icon, Settings gear, UI Hub switcher, Profile Avatar, and live HH:mm clock on the right.
- * - Top-Left Media Ribbon: Horizontal strip of small rounded-square icons (48dp, selected expands to 68dp
- *   with crisp white border + golden aura and the selected game's title immediately to the right).
- * - Full-Screen Atmospheric Backdrop: Deep royal-blue / indigo gradient with animated golden particle flares
- *   and dominant game color bleed.
- * - Bottom-Left Hero Area: Game logo/title, platform badge ("[PS5 / NEXT-GEN]" style monochrome white badge),
- *   glowing translucent white pill "Play Game" button, circular "..." options button, and quick Control Center toggle.
- * - Bottom-Right Trophy & Activity Cards: Glassmorphic Trophy Progress card (Gold/Silver/Bronze breakdown + %)
- *   and Official News / Playtime Activity card.
- * - Optional Bottom Control Center Bar: Translucent dock bar with Controller battery, Sound, Mic, Boost RAM, UI Hub, Power.
+ * Next-generation living-room console architecture:
+ * - Top Header: "Games" | "Media" text switcher on left; UI Hub, RAM Boost, 1X/2X toggle,
+ *   Search, Settings gear, Profile Avatar (P1), and live HH:mm clock on right.
+ * - Top-Left Media Ribbon: Rounded-square app icons (46dp) where the active item expands to
+ *   66dp with crisp white outline + amber glow and inline title beside it.
+ * - Full-Screen Atmospheric Backdrop: Royal-blue / indigo radial backdrop with drifting amber
+ *   particle flare + dominant color bleed from the selected game icon.
+ * - Bottom-Left Hero Stage: Monochrome white platform tag pill, large clean hero title,
+ *   frosted white "Play Game" button, circular "..." options trigger, and Control Center toggle.
+ * - Bottom-Right Real Telemetry Cards:
+ *   Card 1: Real Playtime (30 days) & Last Played from Android UsageStatsManager (or prompt to enable).
+ *   Card 2: Software Details (Install Date, App Version, and Recent / A-Z Sort toggle).
+ * - Bottom Pop-Up Control Center Bar: Controller-focusable dock bar for quick actions.
  * ============================================================================================
  */
 @Composable
@@ -109,6 +108,17 @@ fun NextGenHorizonLayout(
     selectedIndex: Int,
     selectedTab: LauncherTab,
     onTabSelected: (LauncherTab) -> Unit,
+    gameStats: Map<String, GameStats>,
+    hasUsageAccess: Boolean,
+    onRequestUsageAccess: () -> Unit,
+    sortByRecent: Boolean,
+    onToggleSort: () -> Unit,
+    showControlCenter: Boolean,
+    onToggleControlCenter: () -> Unit,
+    controlCenterIndex: Int,
+    onControlCenterAction: (Int) -> Unit,
+    currentFocusZone: FocusZone,
+    gamepadLayout: GamepadLayout,
     powerInfo: PowerInfo,
     ramUsagePercent: Int,
     isDualScreenMode: Boolean,
@@ -124,6 +134,9 @@ fun NextGenHorizonLayout(
 ) {
     val listState = rememberLazyListState()
     val activeApp = apps.getOrNull(selectedIndex)
+    val activeStats = activeApp?.let { gameStats[it.packageName] }
+    val confirmBtn = if (gamepadLayout == GamepadLayout.ABXY) "A" else "B"
+
     val accent = activeApp?.accentColor ?: Color(0xFF2563EB)
     val animatedAccent by animateColorAsState(
         targetValue = accent,
@@ -131,9 +144,7 @@ fun NextGenHorizonLayout(
         label = "Horizon5Accent"
     )
 
-    var showControlCenter by remember { mutableStateOf(false) }
     var currentTime by remember { mutableStateOf(formatTime("HH:mm")) }
-
     LaunchedEffect(Unit) {
         while (true) {
             currentTime = formatTime("HH:mm")
@@ -154,17 +165,11 @@ fun NextGenHorizonLayout(
 
     LaunchedEffect(selectedIndex, apps.size) {
         if (apps.isNotEmpty() && selectedIndex in apps.indices) {
-            listState.animateScrollToItem((selectedIndex - 2).coerceAtLeast(0))
+            listState.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0))
         }
     }
 
-    //Deterministic Trophy & Playtime stats per game package so each title feels alive
-    val appHash = remember(activeApp?.packageName) { abs(activeApp?.packageName?.hashCode() ?: 77) }
-    val trophyPercent = remember(appHash) { (35 + (appHash % 65)).coerceIn(15, 100) }
-    val goldCount = remember(appHash) { 1 + (appHash % 4) }
-    val silverCount = remember(appHash) { 3 + (appHash % 9) }
-    val bronzeCount = remember(appHash) { 8 + (appHash % 24) }
-    val hoursPlayed = remember(appHash) { 12 + (appHash % 140) }
+    val isControlCenterVisible = showControlCenter || currentFocusZone == FocusZone.DOCK
 
     Box(
         modifier = modifier
@@ -203,15 +208,14 @@ fun NextGenHorizonLayout(
                     drawRect(brush = bottomVignette)
                 }
             }
-            .padding(horizontal = 34.dp, vertical = 14.dp)
+            .padding(horizontal = 32.dp, vertical = 12.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 1. TOP HEADER + MEDIA RIBBON SECTION
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Top Bar: Games | Media on Left; Search, Control Center, UI Hub, Settings, Clock on Right
+            // 1. TOP HEADER + MEDIA RIBBON
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -220,7 +224,7 @@ fun NextGenHorizonLayout(
                     // Left: Games | Media text tabs
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                        horizontalArrangement = Arrangement.spacedBy(22.dp)
                     ) {
                         Text(
                             text = "Games",
@@ -240,19 +244,18 @@ fun NextGenHorizonLayout(
                         )
                     }
 
-                    // Right: Search, UI Hub, Boost RAM, Dual Screen toggle, Settings, Profile, Clock
+                    // Right: UI Hub, Boost RAM, Dual Screen, Search, Settings, Profile, Clock
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // UI Hub quick pill
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(Color(0xFFF59E0B).copy(alpha = 0.18f))
                                 .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.75f), RoundedCornerShape(16.dp))
                                 .clickable(onClick = onOpenUiHub)
-                                .padding(horizontal = 11.dp, vertical = 4.dp)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
                                 text = "❖ UI Hub",
@@ -262,7 +265,6 @@ fun NextGenHorizonLayout(
                             )
                         }
 
-                        // Boost RAM quick pill
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
@@ -280,7 +282,6 @@ fun NextGenHorizonLayout(
                             )
                         }
 
-                        // 1x/2x Screen Switcher
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
@@ -297,7 +298,6 @@ fun NextGenHorizonLayout(
                             )
                         }
 
-                        // Search / All Apps icon
                         Text(
                             text = "⌕",
                             color = PureWhite.copy(alpha = 0.85f),
@@ -306,7 +306,6 @@ fun NextGenHorizonLayout(
                             modifier = Modifier.clickable(onClick = onAllApps)
                         )
 
-                        // Settings Gear icon
                         Text(
                             text = "⚙",
                             color = PureWhite.copy(alpha = 0.85f),
@@ -314,7 +313,6 @@ fun NextGenHorizonLayout(
                             modifier = Modifier.clickable(onClick = onOpenSettings)
                         )
 
-                        // Online Profile Avatar with green status dot
                         Box(contentAlignment = Alignment.BottomEnd) {
                             Box(
                                 modifier = Modifier
@@ -322,7 +320,7 @@ fun NextGenHorizonLayout(
                                     .clip(CircleShape)
                                     .background(Brush.linearGradient(listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))))
                                     .border(1.2.dp, PureWhite.copy(alpha = 0.8f), CircleShape)
-                                    .clickable { showControlCenter = !showControlCenter },
+                                    .clickable(onClick = onToggleControlCenter),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(text = "P1", color = PureWhite, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -354,17 +352,12 @@ fun NextGenHorizonLayout(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Store / UI Hub Quick Tile at index 0 style
                     item(key = "horizon_hub_tile") {
                         Box(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF1E3A8A), Color(0xFF0F172A))
-                                    )
-                                )
+                                .background(Brush.linearGradient(listOf(Color(0xFF1E3A8A), Color(0xFF0F172A))))
                                 .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                                 .clickable(onClick = onOpenUiHub),
                             contentAlignment = Alignment.Center
@@ -421,7 +414,6 @@ fun NextGenHorizonLayout(
                                 }
                             }
 
-                            // Inline title right next to the active icon in the top media ribbon
                             if (isSelected) {
                                 Text(
                                     text = if (app.isFavorite) "★ ${app.label}" else app.label,
@@ -436,7 +428,6 @@ fun NextGenHorizonLayout(
                         }
                     }
 
-                    // Library Grid tile at end of ribbon
                     item(key = "horizon_library_tile") {
                         Box(
                             modifier = Modifier
@@ -453,20 +444,19 @@ fun NextGenHorizonLayout(
                 }
             }
 
-            // 2. LOWER CINEMATIC HERO SECTION + TROPHY / ACTIVITY CARDS
+            // 2. LOWER CINEMATIC HERO SECTION + REAL TELEMETRY CARDS
             if (activeApp != null) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.Bottom
                     ) {
-                        // Bottom-Left: Game Hero Logo/Title, Platform Tag, Play Game Pill, (...) Options, Control Center
+                        // Bottom-Left Hero Stage
                         Column(
-                            modifier = Modifier.weight(1.15f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.weight(1.1f),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
-                            // Monochrome White Platform Tag Badge + Full Game tag
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -486,7 +476,9 @@ fun NextGenHorizonLayout(
                                     )
                                 }
                                 Text(
-                                    text = if (activeApp.isEmulator) "Full Emulator Suite" else "Full Game",
+                                    text = if (activeApp.isEmulator) "Full Emulator Suite"
+                                    else if (activeApp.isMedia) "Media Application"
+                                    else "Full Game",
                                     color = PureWhite.copy(alpha = 0.78f),
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium
@@ -501,11 +493,10 @@ fun NextGenHorizonLayout(
                                 }
                             }
 
-                            // Large Hero Game Title
                             Text(
                                 text = activeApp.label,
                                 color = PureWhite,
-                                fontSize = 30.sp,
+                                fontSize = 28.sp,
                                 fontWeight = FontWeight.Light,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -514,33 +505,54 @@ fun NextGenHorizonLayout(
 
                             Spacer(modifier = Modifier.height(2.dp))
 
-                            // Play Game Pill + (...) Circle + Control Center Pill
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(11.dp)
                             ) {
-                                // Translucent frosted white Play Game pill with bright focus border
+                                val isHeroPlayFocused = currentFocusZone != FocusZone.DOCK
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(28.dp))
-                                        .background(PureWhite.copy(alpha = 0.92f))
-                                        .border(2.dp, PureWhite, RoundedCornerShape(28.dp))
+                                        .background(PureWhite.copy(alpha = 0.94f))
+                                        .border(
+                                            width = if (isHeroPlayFocused) 2.2.dp else 1.dp,
+                                            color = if (isHeroPlayFocused) PureWhite else Color.Transparent,
+                                            shape = RoundedCornerShape(28.dp)
+                                        )
                                         .clickable { onLaunch(activeApp) }
-                                        .padding(horizontal = 36.dp, vertical = 11.dp),
+                                        .padding(horizontal = 32.dp, vertical = 10.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = "Play Game",
-                                        color = Color.Black,
-                                        fontSize = 14.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Play Game",
+                                            color = Color.Black,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Black.copy(alpha = 0.14f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = confirmBtn,
+                                                color = Color.Black,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
                                 }
 
-                                // Circular (...) Options button
                                 Box(
                                     modifier = Modifier
-                                        .size(42.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape)
                                         .background(Color.White.copy(alpha = 0.14f))
                                         .border(1.dp, Color.White.copy(alpha = 0.30f), CircleShape)
@@ -555,19 +567,18 @@ fun NextGenHorizonLayout(
                                     )
                                 }
 
-                                // Quick Control Center Bar Toggle
                                 Box(
                                     modifier = Modifier
-                                        .size(42.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(if (showControlCenter) Color(0xFFF59E0B).copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f))
-                                        .border(1.dp, if (showControlCenter) Color(0xFFF59E0B) else Color.White.copy(alpha = 0.24f), CircleShape)
-                                        .clickable { showControlCenter = !showControlCenter },
+                                        .background(if (isControlCenterVisible) Color(0xFFF59E0B).copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f))
+                                        .border(1.dp, if (isControlCenterVisible) Color(0xFFF59E0B) else Color.White.copy(alpha = 0.24f), CircleShape)
+                                        .clickable(onClick = onToggleControlCenter),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = "⊞",
-                                        color = if (showControlCenter) Color(0xFFF59E0B) else PureWhite,
+                                        color = if (isControlCenterVisible) Color(0xFFF59E0B) else PureWhite,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -575,20 +586,22 @@ fun NextGenHorizonLayout(
                             }
                         }
 
-                        // Bottom-Right: Trophy Progress & Activity Cards
+                        // Bottom-Right Real Data Cards (Playtime & Software Details)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.Bottom
                         ) {
-                            // Card 1: Official Activity / Resume Card
+                            // Card 1: Real Playtime & Last Played (or Usage Access prompt)
                             Box(
                                 modifier = Modifier
-                                    .width(175.dp)
-                                    .height(112.dp)
+                                    .width(185.dp)
+                                    .height(106.dp)
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(Color(0xCC111827))
                                     .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-                                    .clickable { onLaunch(activeApp) }
+                                    .clickable {
+                                        if (hasUsageAccess) onLaunch(activeApp) else onRequestUsageAccess()
+                                    }
                                     .padding(12.dp)
                             ) {
                                 Column(
@@ -604,54 +617,74 @@ fun NextGenHorizonLayout(
                                                 bitmap = activeApp.iconBitmap,
                                                 contentDescription = activeApp.label,
                                                 modifier = Modifier
-                                                    .size(34.dp)
+                                                    .size(32.dp)
                                                     .clip(RoundedCornerShape(8.dp)),
                                                 contentScale = ContentScale.Fit
                                             )
                                         }
                                         Column {
                                             Text(
-                                                text = "IN PROGRESS",
+                                                text = if (hasUsageAccess) "ACTIVITY & PLAYTIME" else "PLAYTIME STATS",
                                                 color = Color(0xFFF59E0B),
                                                 fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Black,
-                                                letterSpacing = 0.5.sp
+                                                letterSpacing = 0.4.sp
                                             )
                                             Text(
-                                                text = "Quick Resume",
+                                                text = if (hasUsageAccess) "30-Day Tracker" else "Permission Needed",
                                                 color = PureWhite,
-                                                fontSize = 12.sp,
+                                                fontSize = 11.5.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
 
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(
-                                            text = "PLAYED ${hoursPlayed}h",
-                                            color = PureWhite.copy(alpha = 0.85f),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Text(
-                                            text = "Press [A] to jump in",
-                                            color = TextMuted,
-                                            fontSize = 9.5.sp
-                                        )
+                                    if (hasUsageAccess) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = "PLAYED ${formatPlaytime(activeStats?.playtimeMs30d ?: 0L)}",
+                                                color = StatusGreen,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Text(
+                                                text = "Last played: ${formatRelativeTime(activeStats?.lastPlayedMs ?: 0L)}",
+                                                color = TextSecondary,
+                                                fontSize = 9.5.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    } else {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = "Tap to enable Usage Access",
+                                                color = ElectricCyan,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Unlocks real playtime & recent sort",
+                                                color = TextMuted,
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }
 
-                            // Card 2: Trophy Progress Breakdown Card
+                            // Card 2: Software Details & Library Sort Switcher
                             Box(
                                 modifier = Modifier
                                     .width(195.dp)
-                                    .height(112.dp)
+                                    .height(106.dp)
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(Color(0xCC111827))
                                     .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-                                    .clickable { onOptions(activeApp) }
+                                    .clickable(onClick = onToggleSort)
                                     .padding(12.dp)
                             ) {
                                 Column(
@@ -664,69 +697,86 @@ fun NextGenHorizonLayout(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "🏆 TROPHIES",
-                                            color = Color(0xFFF59E0B),
-                                            fontSize = 9.5.sp,
+                                            text = "SOFTWARE INFO",
+                                            color = ElectricCyan,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 0.5.sp
                                         )
-                                        Text(
-                                            text = "$trophyPercent%",
-                                            color = PureWhite,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Black
-                                        )
-                                    }
-
-                                    // Progress Bar
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(5.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color.White.copy(alpha = 0.15f))
-                                    ) {
                                         Box(
                                             modifier = Modifier
-                                                .fillMaxWidth(trophyPercent / 100f)
-                                                .fillMaxHeight()
-                                                .clip(RoundedCornerShape(3.dp))
-                                                .background(Color(0xFFF59E0B))
-                                        )
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(ElectricCyan.copy(alpha = 0.16f))
+                                                .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                        ) {
+                                            Text(
+                                                text = if (sortByRecent) "🕒 Recent" else "A–Z",
+                                                color = ElectricCyan,
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
 
-                                    // Gold / Silver / Bronze counts
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        TrophyMiniCounter(label = "G", count = goldCount, color = Color(0xFFFBBF24))
-                                        TrophyMiniCounter(label = "S", count = silverCount, color = Color(0xFFCBD5E1))
-                                        TrophyMiniCounter(label = "B", count = bronzeCount, color = Color(0xFFD97706))
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(
+                                            text = "Version: ${activeStats?.versionName?.let { "v$it" } ?: "—"}",
+                                            color = PureWhite,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "Installed: ${formatDate(activeStats?.installedMs ?: 0L)}",
+                                            color = TextSecondary,
+                                            fontSize = 10.sp,
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = activeApp.packageName,
+                                            color = TextMuted,
+                                            fontSize = 8.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Optional Pop-up Bottom Control Center Dock Bar
-                    if (showControlCenter) {
+                    // Bottom Control Center Bar (Controller-Focusable)
+                    if (isControlCenterVisible) {
+                        val items = listOf(
+                            "🏠" to "Home",
+                            "▦" to "All Apps",
+                            "⚡" to "Boost RAM",
+                            "❖" to "UI Hub",
+                            "⧉" to if (isDualScreenMode) "2X DS" else "1X",
+                            "⚙" to "System"
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(18.dp))
                                 .background(Color(0xE60F172A))
                                 .border(1.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(18.dp))
-                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                                .padding(horizontal = 16.dp, vertical = 7.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ControlCenterItem(icon = "🏠", label = "Home") { showControlCenter = false }
-                            ControlCenterItem(icon = "▦", label = "Switcher", onClick = onAllApps)
-                            ControlCenterItem(icon = "⚡", label = "Boost RAM", onClick = onOptimize)
-                            ControlCenterItem(icon = "❖", label = "UI Hub", onClick = onOpenUiHub)
-                            ControlCenterItem(icon = "🎮", label = "Pad ${powerInfo.percentage}%") { showControlCenter = false }
-                            ControlCenterItem(icon = "⚙", label = "System", onClick = onOpenSettings)
+                            items.forEachIndexed { idx, (icon, label) ->
+                                val isFocusedItem = currentFocusZone == FocusZone.DOCK && controlCenterIndex == idx
+                                ControlCenterItem(
+                                    icon = icon,
+                                    label = label,
+                                    isFocused = isFocusedItem,
+                                    onClick = { onControlCenterAction(idx) }
+                                )
+                            }
                         }
                     }
                 }
@@ -736,77 +786,58 @@ fun NextGenHorizonLayout(
 }
 
 @Composable
-private fun TrophyMiniCounter(label: String, count: Int, color: Color) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(13.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.25f))
-                .border(1.dp, color, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = label, color = color, fontSize = 7.5.sp, fontWeight = FontWeight.Black)
-        }
-        Text(
-            text = count.toString(),
-            color = PureWhite,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-private fun ControlCenterItem(icon: String, label: String, onClick: () -> Unit) {
+private fun ControlCenterItem(
+    icon: String,
+    label: String,
+    isFocused: Boolean,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.08f))
+            .background(if (isFocused) Color(0xFFF59E0B) else Color.White.copy(alpha = 0.08f))
+            .border(
+                width = if (isFocused) 1.5.dp else 0.dp,
+                color = if (isFocused) PureWhite else Color.Transparent,
+                shape = RoundedCornerShape(12.dp)
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(text = icon, fontSize = 13.sp, color = PureWhite)
-        Text(text = label, fontSize = 11.sp, color = PureWhite, fontWeight = FontWeight.SemiBold)
+        Text(text = icon, fontSize = 13.sp, color = if (isFocused) Color.Black else PureWhite)
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = if (isFocused) Color.Black else PureWhite,
+            fontWeight = if (isFocused) FontWeight.Black else FontWeight.SemiBold
+        )
     }
 }
 
 /**
  * ============================================================================================
  * 2. N-HYBRID PORTABLE DECK UI (FULL-SCREEN REPLACEMENT)
- * Authentic hybrid console home screen:
- * - Supports instant "Basic Black" (#2D2D2D) and "Basic White" (#EBEBEB) theme toggle!
- * - Top Left: Circular Player Avatar + small Online indicator.
- * - Top Right: Live Time ("15:20"), Wi-Fi Signal bars, Battery % + horizontal battery icon,
- *   Basic White/Black Theme Toggle pill, and 1x/2x Dual-Screen toggle.
- * - Center Stage:
- *   - Floating Title directly above the active square tile in crisp turquoise-cyan (#00B8D4)
- *     with a game-card cartridge icon beside it.
- *   - Edge-to-edge horizontal row of large 1:1 square game tiles (150dp x 150dp) with an
- *     outer pulsing cyan focus ring + inner white/dark gap border.
- *   - At the end of the row: circular "All Software" (4-squares grid) button.
- * - Lower Dock: Centered row of 6 circular system buttons (50dp diameter) with drop-shadow borders
- *   and a floating label below the active circle:
- *   1. News / Updates (Red/Orange)
- *   2. UI Shop / Hub (Amber/Orange bag)
- *   3. Album / Media (Blue)
- *   4. Turbo RAM Boost (Emerald Green)
- *   5. System Settings (Gear)
- *   6. All Software Drawer (Cyan)
- * - Bottom Footer Bar: Full-width 1.dp horizontal divider rule;
- *   Left: Dual-controller icon + live RAM badge;
- *   Right: "(+) Options" and "(A) Start" button prompts.
+ * Authentic hybrid-handheld home screen:
+ * - Instant "Basic Black" (#2B2D31) / "Basic White" (#EBEBEB) theme toggle + Sort pill.
+ * - Top Status Bar: Player avatar (P1), Theme toggle, Recent/A-Z sort pill on left;
+ *   UI Hub, 1X/2X DS toggle, live clock, signal & battery % on right.
+ * - Center Stage: Floating cyan cartridge title + subtle playtime/tag subtitle above
+ *   large 148dp square game tiles with pulsing cyan outer focus ring + end-of-row All Software circle.
+ * - Lower Dock: 6 circular system action bubbles with floating active label + full-width bottom rule.
+ * - Footer: Dual-Tone Controller grip icon + RAM badge on left; (+) Options / Confirm Start on right.
  * ============================================================================================
  */
 @Composable
 fun HybridPortableDeckLayout(
     apps: List<AppItem>,
     selectedIndex: Int,
+    gameStats: Map<String, GameStats>,
+    hasUsageAccess: Boolean,
+    sortByRecent: Boolean,
+    onToggleSort: () -> Unit,
+    gamepadLayout: GamepadLayout,
     powerInfo: PowerInfo,
     ramUsagePercent: Int,
     isLightTheme: Boolean,
@@ -824,8 +855,10 @@ fun HybridPortableDeckLayout(
 ) {
     val listState = rememberLazyListState()
     val activeApp = apps.getOrNull(selectedIndex)
-    var currentTime by remember { mutableStateOf(formatTime("HH:mm")) }
+    val activeStats = activeApp?.let { gameStats[it.packageName] }
+    val confirmBtn = if (gamepadLayout == GamepadLayout.ABXY) "A" else "B"
 
+    var currentTime by remember { mutableStateOf(formatTime("HH:mm")) }
     LaunchedEffect(Unit) {
         while (true) {
             currentTime = formatTime("HH:mm")
@@ -852,6 +885,7 @@ fun HybridPortableDeckLayout(
 
     val bgCol = if (isLightTheme) Color(0xFFEBEBEB) else Color(0xFF2B2D31)
     val primaryTextCol = if (isLightTheme) Color(0xFF222222) else PureWhite
+    val secondaryTextCol = if (isLightTheme) Color(0xFF52525B) else Color(0xFF94A3B8)
     val titleCyanCol = if (isLightTheme) Color(0xFF0097A7) else Color(0xFF00C3E3)
     val circleBgCol = if (isLightTheme) PureWhite else Color(0xFF3A3D42)
     val circleBorderCol = if (isLightTheme) Color.Black.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.16f)
@@ -865,22 +899,21 @@ fun HybridPortableDeckLayout(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // 1. TOP STATUS BAR: Left Player Avatar Circles; Right Theme Switch, Dual Screen, Time, Wi-Fi, Battery
+        // 1. TOP STATUS BAR
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp),
+                .padding(horizontal = 28.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Top-Left: Player Profile Circle + Page/Favorites badge
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
                         .background(Color(0xFFFF4554))
                         .border(2.dp, PureWhite, CircleShape)
@@ -890,7 +923,7 @@ fun HybridPortableDeckLayout(
                     Text(
                         text = "P1",
                         color = PureWhite,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black
                     )
                 }
@@ -906,16 +939,31 @@ fun HybridPortableDeckLayout(
                     Text(
                         text = if (isLightTheme) "☀ Basic White" else "☾ Basic Black",
                         color = primaryTextCol,
-                        fontSize = 10.5.sp,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(circleBgCol)
+                        .border(1.dp, titleCyanCol.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .clickable(onClick = onToggleSort)
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (sortByRecent) "🕒 Recent" else "A–Z",
+                        color = titleCyanCol,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Top-Right: UI Hub button, Dual-Screen toggle, Clock, Wi-Fi, Battery %
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -928,7 +976,7 @@ fun HybridPortableDeckLayout(
                     Text(
                         text = "❖ UI Hub",
                         color = Color(0xFFFF4554),
-                        fontSize = 10.5.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Black
                     )
                 }
@@ -952,13 +1000,13 @@ fun HybridPortableDeckLayout(
                 Text(
                     text = currentTime,
                     color = primaryTextCol,
-                    fontSize = 15.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
                     text = "📶",
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     color = primaryTextCol
                 )
 
@@ -969,7 +1017,7 @@ fun HybridPortableDeckLayout(
                     Text(
                         text = "${powerInfo.percentage} %",
                         color = primaryTextCol,
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Box(
@@ -990,19 +1038,17 @@ fun HybridPortableDeckLayout(
             }
         }
 
-        // 2. CENTER CARTRIDGE TITLE + LARGE SQUARE GAME TILES ROW
+        // 2. CENTER CARTRIDGE TITLE + SQUARE GAME TILES ROW
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Active Game Title directly above the tiles with game-card cartridge icon
             if (activeApp != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Little cartridge icon
                     Box(
                         modifier = Modifier
                             .size(width = 14.dp, height = 17.dp)
@@ -1019,19 +1065,33 @@ fun HybridPortableDeckLayout(
                     Text(
                         text = if (activeApp.isFavorite) "★ ${activeApp.label}" else activeApp.label,
                         color = titleCyanCol,
-                        fontSize = 19.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                val playtimeMs = activeStats?.playtimeMs30d ?: 0L
+                val metaSubtitle = if (hasUsageAccess && playtimeMs > 0L) {
+                    "${activeApp.systemTag}  •  Played ${formatPlaytime(playtimeMs)}"
+                } else {
+                    activeApp.systemTag
+                }
+                Text(
+                    text = metaSubtitle,
+                    color = secondaryTextCol,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace
+                )
             }
 
             LazyRow(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(166.dp),
+                    .height(162.dp),
                 contentPadding = PaddingValues(horizontal = 42.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1044,10 +1104,9 @@ fun HybridPortableDeckLayout(
                         label = "NHybridScale"
                     )
 
-                    // Outer pulsing cyan ring + inner neutral frame
                     Box(
                         modifier = Modifier
-                            .size(148.dp)
+                            .size(144.dp)
                             .scale(scale)
                             .shadow(
                                 elevation = if (isSelected) 10.dp else 3.dp,
@@ -1068,7 +1127,6 @@ fun HybridPortableDeckLayout(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        // Subtle colored wash behind icon so every tile looks like full cover art
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1087,7 +1145,7 @@ fun HybridPortableDeckLayout(
                                     bitmap = app.iconBitmap,
                                     contentDescription = app.label,
                                     modifier = Modifier
-                                        .size(102.dp)
+                                        .size(98.dp)
                                         .clip(RoundedCornerShape(16.dp)),
                                     contentScale = ContentScale.Fit
                                 )
@@ -1095,7 +1153,7 @@ fun HybridPortableDeckLayout(
                                 Text(
                                     text = app.label.take(2).uppercase(),
                                     color = primaryTextCol,
-                                    fontSize = 28.sp,
+                                    fontSize = 26.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -1115,11 +1173,10 @@ fun HybridPortableDeckLayout(
                     }
                 }
 
-                // Circular "All Software" Grid Button at end of row
                 item(key = "hybrid_all_software_circle") {
                     Box(
                         modifier = Modifier
-                            .size(124.dp)
+                            .size(120.dp)
                             .padding(12.dp)
                             .clip(CircleShape)
                             .background(circleBgCol)
@@ -1145,7 +1202,7 @@ fun HybridPortableDeckLayout(
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             val dockItems = listOf(
                 Triple(DockAction.OPTIMIZE, "⚡", "Turbo Boost (${ramUsagePercent}% RAM)" to Color(0xFF10B981)),
@@ -1165,7 +1222,7 @@ fun HybridPortableDeckLayout(
                     val isSelected = currentFocusZone == FocusZone.DOCK && selectedDockIndex == idx
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(46.dp)
                             .shadow(3.dp, CircleShape)
                             .clip(CircleShape)
                             .background(circleBgCol)
@@ -1195,12 +1252,11 @@ fun HybridPortableDeckLayout(
                 Text(
                     text = activeDockLabel,
                     color = titleCyanCol,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            // Full-width horizontal divider line
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1217,7 +1273,7 @@ fun HybridPortableDeckLayout(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Bottom-Left: Dual-Joy Grip Icon + Active Mode
+                // Bottom-Left: Dual-Tone Controller Grip Icon + Live RAM
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1238,7 +1294,7 @@ fun HybridPortableDeckLayout(
                     }
                     Text(
                         text = "RAM ${ramUsagePercent}%",
-                        color = primaryTextCol.copy(alpha = 0.7f),
+                        color = primaryTextCol.copy(alpha = 0.72f),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -1246,7 +1302,7 @@ fun HybridPortableDeckLayout(
                     )
                 }
 
-                // Bottom-Right: (+) Options   (A) Start
+                // Bottom-Right: (+) Options   (A/B) Start
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -1285,7 +1341,7 @@ fun HybridPortableDeckLayout(
                                 .background(primaryTextCol),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "A", color = bgCol, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            Text(text = confirmBtn, color = bgCol, fontSize = 10.sp, fontWeight = FontWeight.Black)
                         }
                         Text(
                             text = "Start",
@@ -1302,29 +1358,21 @@ fun HybridPortableDeckLayout(
 
 /**
  * ============================================================================================
- * 3. DUAL-SCREEN 3D HANDHELD UI (AUTHENTIC TOP 3D STAGE + BOTTOM TOUCH SCREEN)
- * Looks like an actual dual-screen handheld home menu:
- * - TOP SCREEN (Upper 3D Stereoscopic Display):
- *   - Top Status Strip: Green "Internet" pill + 5 signal bars on the left,
- *     Footsteps / Play Coins ("🪙 300") in the center, and Date + Time + Battery bars on the right.
- *   - 3D Stereoscopic Stage: Soft sky-white/silver grid floor & floating clouds with a rotating
- *     3D Cartridge / Software Box in the center, sound-wave rings on both sides, and floating speech-bubble title plate.
- *   - Interactive 3D Depth Slider on the right edge ("3D ●━━ OFF").
- * - LOWER SCREEN (Touch Stylus Grid Matrix):
- *   - Top Applet Bar: Quick circular/rounded icons for:
- *     [📝 Game Notes] [😊 Friend List] [🔔 Notifications] [🌐 Web Browser] [❖ UI Hub] [⚡ Boost RAM]
- *     plus the iconic [⊟] (shrink tiles / more columns) and [⊞] (enlarge tiles / fewer columns) zoom buttons!
- *   - Center Touch Grid: Beveled 3D tactile white/silver squares with inner glossy frames and animated
- *     orange/cyan corner selection brackets around the focused cartridge.
- *   - Bottom 3-Button Handheld Bezel Bar:
- *     Large tactile rounded-top bezel buttons along the bottom edge:
- *     [ 🔧 Options (Y) ]  |  [ ▶ Open (A) ]  |  [ ❖ UI Hub / Manual ]
+ * 3. DUAL-SCREEN 3D HANDHELD UI (SPLIT INTO UPPER STAGE + LOWER TOUCH DECK)
+ * Used stacked together on single-screen devices, OR mapped 1-per-display on dual-screen clamshells!
  * ============================================================================================
  */
 @Composable
 fun StereoscopicDual3DLayout(
     apps: List<AppItem>,
     selectedIndex: Int,
+    gameStats: Map<String, GameStats>,
+    hasUsageAccess: Boolean,
+    gridColumns: Int,
+    onGridColumnsChange: (Int) -> Unit,
+    depth3dLevel: Float,
+    onToggleDepth3d: () -> Unit,
+    gamepadLayout: GamepadLayout,
     powerInfo: PowerInfo,
     ramUsagePercent: Int,
     isDualScreenMode: Boolean,
@@ -1338,12 +1386,67 @@ fun StereoscopicDual3DLayout(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var gridColumns by remember { mutableIntStateOf(4) }
-    var depth3dLevel by remember { mutableFloatStateOf(1.0f) }
-    val gridState = rememberLazyGridState()
     val activeApp = apps.getOrNull(selectedIndex)
-    var dateTimeStr by remember { mutableStateOf(formatTime("MM/dd (EEE) HH:mm")) }
+    val activeStats = activeApp?.let { gameStats[it.packageName] }
 
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFF0E131D))
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Dual3DUpperStage(
+            activeApp = activeApp,
+            totalAppCount = apps.size,
+            stats = activeStats,
+            hasUsageAccess = hasUsageAccess,
+            powerInfo = powerInfo,
+            ramUsagePercent = ramUsagePercent,
+            depth3dLevel = depth3dLevel,
+            onToggleDepth3d = onToggleDepth3d,
+            onOptimize = onOptimize,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.45f)
+        )
+
+        Dual3DLowerTouchDeck(
+            apps = apps,
+            selectedIndex = selectedIndex,
+            gridColumns = gridColumns,
+            onGridColumnsChange = onGridColumnsChange,
+            gamepadLayout = gamepadLayout,
+            isDualScreenMode = isDualScreenMode,
+            onToggleDualScreen = onToggleDualScreen,
+            onIndexSelected = onIndexSelected,
+            onLaunch = onLaunch,
+            onOptions = onOptions,
+            onOpenUiHub = onOpenUiHub,
+            onOptimize = onOptimize,
+            onAllApps = onAllApps,
+            onOpenSettings = onOpenSettings,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.55f)
+        )
+    }
+}
+
+@Composable
+fun Dual3DUpperStage(
+    activeApp: AppItem?,
+    totalAppCount: Int,
+    stats: GameStats?,
+    hasUsageAccess: Boolean,
+    powerInfo: PowerInfo,
+    ramUsagePercent: Int,
+    depth3dLevel: Float,
+    onToggleDepth3d: () -> Unit,
+    onOptimize: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var dateTimeStr by remember { mutableStateOf(formatTime("MM/dd (EEE) HH:mm")) }
     LaunchedEffect(Unit) {
         while (true) {
             dateTimeStr = formatTime("MM/dd (EEE) HH:mm")
@@ -1362,6 +1465,296 @@ fun StereoscopicDual3DLayout(
         label = "SpinAngle"
     )
 
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .drawWithCache {
+                val skyGradient = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF1D2B44),
+                        Color(0xFF2E4369),
+                        Color(0xFFDCE6F2)
+                    )
+                )
+                onDrawBehind {
+                    drawRect(brush = skyGradient)
+                    val horizonY = size.height * 0.72f
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.35f),
+                        start = Offset(0f, horizonY),
+                        end = Offset(size.width, horizonY),
+                        strokeWidth = 1.2.dp.toPx()
+                    )
+                }
+            }
+            .border(2.dp, Color(0xFF475569), RoundedCornerShape(16.dp))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Top Status Bar: [Online ▂▄▆█] | [▦ X Titles  ⚡ RAM Y%] | [Date Time 🔋 Z%]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.48f))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF10B981))
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "Online",
+                            color = Color.Black,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    Text(
+                        text = "▂▄▆█",
+                        color = Color(0xFF10B981),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "▦ $totalAppCount Titles",
+                        color = PlatinumWhite,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "⚡ RAM ${ramUsagePercent}%",
+                        color = Color(0xFF10B981),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.clickable(onClick = onOptimize)
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = dateTimeStr,
+                        color = PureWhite,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "🔋 ${powerInfo.percentage}%",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Center 3D Rotating Cartridge Stage + Glossy Speech-Bubble Title Banner + 3D Depth Slider
+            if (activeApp != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 18.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Canvas(modifier = Modifier.size(44.dp)) {
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.22f),
+                            radius = size.width * 0.45f,
+                            style = Stroke(width = 1.5.dp.toPx())
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.38f),
+                            radius = size.width * 0.25f,
+                            style = Stroke(width = 1.5.dp.toPx())
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (depth3dLevel > 0.1f) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .graphicsLayer {
+                                            translationX = 6f * depth3dLevel
+                                            rotationY = spinAngle * depth3dLevel
+                                        }
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(activeApp.accentColor.copy(alpha = 0.35f))
+                                        .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(76.dp)
+                                    .graphicsLayer {
+                                        rotationY = spinAngle
+                                        translationY = (spinAngle * 0.2f)
+                                    }
+                                    .shadow(10.dp, RoundedCornerShape(16.dp))
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(PureWhite)
+                                    .border(2.5.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                                    .padding(6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (activeApp.iconBitmap != null) {
+                                    Image(
+                                        bitmap = activeApp.iconBitmap,
+                                        contentDescription = activeApp.label,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                } else {
+                                    Text(
+                                        text = activeApp.label.take(2).uppercase(),
+                                        color = Color(0xFF1E293B),
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                        }
+
+                        // Speech-Bubble Title Banner
+                        Column(
+                            modifier = Modifier
+                                .width(245.dp)
+                                .shadow(6.dp, RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(PureWhite)
+                                .border(2.dp, activeApp.accentColor.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = if (activeApp.isFavorite) "★ ${activeApp.label}" else activeApp.label,
+                                color = Color(0xFF0F172A),
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.75f)
+                                    .height(1.dp)
+                                    .background(Color(0xFFCBD5E1))
+                            )
+                            val playedText = if (hasUsageAccess && (stats?.playtimeMs30d ?: 0L) > 0L) {
+                                "${activeApp.systemTag} • PLAYED ${formatPlaytime(stats?.playtimeMs30d ?: 0L)}"
+                            } else {
+                                "${activeApp.systemTag} SOFTWARE"
+                            }
+                            Text(
+                                text = playedText,
+                                color = Color(0xFF475569),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Right Edge: Interactive 3D Depth Slider Switch ("3D ON / OFF")
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+                            .clickable(onClick = onToggleDepth3d)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = "3D",
+                            color = if (depth3dLevel > 0f) Color(0xFF10B981) else TextMuted,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(6.dp)
+                                .height(22.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.White.copy(alpha = 0.2f)),
+                            contentAlignment = if (depth3dLevel > 0f) Alignment.TopCenter else Alignment.BottomCenter
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (depth3dLevel > 0f) Color(0xFF10B981) else Color.Gray)
+                            )
+                        }
+                        Text(
+                            text = if (depth3dLevel > 0f) "ON" else "OFF",
+                            color = PureWhite,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun Dual3DLowerTouchDeck(
+    apps: List<AppItem>,
+    selectedIndex: Int,
+    gridColumns: Int,
+    onGridColumnsChange: (Int) -> Unit,
+    gamepadLayout: GamepadLayout,
+    isDualScreenMode: Boolean,
+    onToggleDualScreen: () -> Unit,
+    onIndexSelected: (Int) -> Unit,
+    onLaunch: (AppItem) -> Unit,
+    onOptions: (AppItem) -> Unit,
+    onOpenUiHub: () -> Unit,
+    onOptimize: () -> Unit,
+    onAllApps: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val gridState = rememberLazyGridState()
+    val activeApp = apps.getOrNull(selectedIndex)
+    val confirmBtn = if (gamepadLayout == GamepadLayout.ABXY) "A" else "B"
+
     LaunchedEffect(selectedIndex, apps.size) {
         if (apps.isNotEmpty() && selectedIndex in apps.indices) {
             gridState.animateScrollToItem(selectedIndex)
@@ -1370,513 +1763,220 @@ fun StereoscopicDual3DLayout(
 
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFF0E131D))
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFD8E1EC))
+            .border(2.dp, Color(0xFF94A3B8), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // ==================== TOP 3D STEREOSCOPIC SCREEN ====================
-        Box(
+        // 1. Top Applet Strip + [⊟] / [⊞] Grid Zoom Buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HandheldAppletPill(icon = "🎨", label = "Themes", tint = Color(0xFFE11D48), onClick = onOpenUiHub)
+                HandheldAppletPill(icon = "▦", label = "Library", tint = Color(0xFFF97316), onClick = onAllApps)
+                HandheldAppletPill(icon = "⚡", label = "Boost", tint = Color(0xFF10B981), onClick = onOptimize)
+                HandheldAppletPill(icon = "⚙", label = "Settings", tint = Color(0xFF0284C7), onClick = onOpenSettings)
+                HandheldAppletPill(
+                    icon = "⧉",
+                    label = if (isDualScreenMode) "2X DS" else "1X",
+                    tint = Color(0xFF6366F1),
+                    onClick = onToggleDualScreen
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .shadow(2.dp, RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(PureWhite)
+                        .border(1.dp, Color(0xFF94A3B8), RoundedCornerShape(7.dp))
+                        .clickable { onGridColumnsChange((gridColumns + 1).coerceAtMost(6)) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "⊟", color = Color(0xFF1E293B), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .shadow(2.dp, RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(PureWhite)
+                        .border(1.dp, Color(0xFF94A3B8), RoundedCornerShape(7.dp))
+                        .clickable { onGridColumnsChange((gridColumns - 1).coerceAtLeast(2)) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "⊞", color = Color(0xFF1E293B), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+
+        // 2. Center Tactile Cartridge Slot Grid
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(gridColumns),
+            state = gridState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.45f)
-                .clip(RoundedCornerShape(16.dp))
-                .drawWithCache {
-                    val skyGradient = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF1D2B44),
-                            Color(0xFF2E4369),
-                            Color(0xFFDCE6F2)
-                        )
-                    )
-                    onDrawBehind {
-                        drawRect(brush = skyGradient)
-                        // Subtle 3D perspective horizon lines at the bottom of the top screen
-                        val horizonY = size.height * 0.72f
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.35f),
-                            start = Offset(0f, horizonY),
-                            end = Offset(size.width, horizonY),
-                            strokeWidth = 1.2.dp.toPx()
-                        )
-                    }
-                }
-                .border(2.dp, Color(0xFF475569), RoundedCornerShape(16.dp))
+                .weight(1f)
+                .padding(vertical = 4.dp),
+            contentPadding = PaddingValues(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Top Handheld Status Bar: [Internet ▂▄▆█] | [🪙 300  👣 4,820] | [Date Time 🔋]
-                Row(
+            itemsIndexed(apps, key = { _, app -> "ds3d_${app.id}" }) { index, app ->
+                val isSelected = index == selectedIndex
+                val slotHeight = when (gridColumns) {
+                    2 -> 76.dp
+                    3 -> 68.dp
+                    else -> 58.dp
+                }
+
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.48f))
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(slotHeight)
+                        .shadow(if (isSelected) 6.dp else 2.dp, RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(PureWhite)
+                        .border(
+                            width = if (isSelected) 3.dp else 1.2.dp,
+                            color = if (isSelected) Color(0xFFF97316) else Color(0xFF94A3B8),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable {
+                            if (isSelected) onLaunch(app) else onIndexSelected(index)
+                        }
+                        .padding(5.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Left: Green Internet badge + signal bars
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFF10B981))
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = "Internet",
-                                color = Color.Black,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        Text(
-                            text = "▂▄▆█",
-                            color = Color(0xFF10B981),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-
-                    // Center: Play Coins & Steps Counter + RAM %
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "🪙 300",
-                            color = Color(0xFFFBBF24),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = "⚡ RAM ${ramUsagePercent}%",
-                            color = PureWhite,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.clickable(onClick = onOptimize)
-                        )
-                    }
-
-                    // Right: Date/Time + Dual Screen Switch + Battery
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = dateTimeStr,
-                            color = PureWhite,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = "🔋 ${powerInfo.percentage}%",
-                            color = Color(0xFF38BDF8),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Center 3D Rotating Cartridge Box Stage + Speech Bubble Banner + 3D Depth Slider
-                if (activeApp != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(horizontal = 18.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Left Acoustic Wave Rings
-                        Canvas(modifier = Modifier.size(44.dp)) {
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.22f),
-                                radius = size.width * 0.45f,
-                                style = Stroke(width = 1.5.dp.toPx())
-                            )
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.38f),
-                                radius = size.width * 0.25f,
-                                style = Stroke(width = 1.5.dp.toPx())
-                            )
-                        }
-
-                        // Center 3D Cartridge & Floating White Speech Bubble Title Plate
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(18.dp)
-                        ) {
-                            // 3D Parallax Dual-Layer Cartridge Box
-                            Box(contentAlignment = Alignment.Center) {
-                                // Stereoscopic 3D ghost layer when 3D slider > 0
-                                if (depth3dLevel > 0.1f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(76.dp)
-                                            .graphicsLayer {
-                                                translationX = 6f * depth3dLevel
-                                                rotationY = spinAngle * depth3dLevel
-                                            }
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(activeApp.accentColor.copy(alpha = 0.35f))
-                                            .border(1.5.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .size(76.dp)
-                                        .graphicsLayer {
-                                            rotationY = spinAngle
-                                            translationY = (spinAngle * 0.2f)
-                                        }
-                                        .shadow(10.dp, RoundedCornerShape(16.dp))
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(PureWhite)
-                                        .border(2.5.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
-                                        .padding(6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (activeApp.iconBitmap != null) {
-                                        Image(
-                                            bitmap = activeApp.iconBitmap,
-                                            contentDescription = activeApp.label,
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .clip(RoundedCornerShape(12.dp)),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    } else {
-                                        Text(
-                                            text = activeApp.label.take(2).uppercase(),
-                                            color = Color(0xFF1E293B),
-                                            fontSize = 22.sp,
-                                            fontWeight = FontWeight.Black
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Classic White Glossy Speech-Bubble Title Banner
-                            Column(
+                        if (app.iconBitmap != null) {
+                            Image(
+                                bitmap = app.iconBitmap,
+                                contentDescription = app.label,
                                 modifier = Modifier
-                                    .width(240.dp)
-                                    .shadow(6.dp, RoundedCornerShape(16.dp))
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(PureWhite)
-                                    .border(2.dp, activeApp.accentColor.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(
-                                    text = if (activeApp.isFavorite) "★ ${activeApp.label}" else activeApp.label,
-                                    color = Color(0xFF0F172A),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Black,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.75f)
-                                        .height(1.dp)
-                                        .background(Color(0xFFCBD5E1))
-                                )
-                                Text(
-                                    text = "${activeApp.systemTag} SOFTWARE",
-                                    color = Color(0xFF475569),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-
-                        // Right Edge: Interactive 3D Depth Slider Switch ("3D / OFF")
-                        Column(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
-                                .clickable {
-                                    depth3dLevel = if (depth3dLevel > 0.5f) 0f else 1f
-                                }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = "3D",
-                                color = if (depth3dLevel > 0f) Color(0xFF10B981) else TextMuted,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black
+                                    .size(if (gridColumns <= 3) 46.dp else 38.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Fit
                             )
+                        } else {
                             Box(
                                 modifier = Modifier
-                                    .width(6.dp)
-                                    .height(22.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(Color.White.copy(alpha = 0.2f)),
-                                contentAlignment = if (depth3dLevel > 0f) Alignment.TopCenter else Alignment.BottomCenter
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(app.accentColor.copy(alpha = 0.25f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(if (depth3dLevel > 0f) Color(0xFF10B981) else Color.Gray)
+                                Text(
+                                    text = app.label.take(2).uppercase(),
+                                    color = Color(0xFF0F172A),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black
                                 )
                             }
+                        }
+
+                        if (gridColumns <= 3) {
                             Text(
-                                text = if (depth3dLevel > 0f) "ON" else "OFF",
-                                color = PureWhite,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
+                                text = app.label,
+                                color = Color(0xFF0F172A),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
+
+                    if (app.isFavorite) {
+                        Text(
+                            text = "★",
+                            color = Color(0xFFF59E0B),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(2.dp)
+                        )
                     }
                 }
             }
         }
 
-        // ==================== LOWER TOUCH SCREEN (APPLET BAR + 3D GRID + 3-BUTTON BEZEL) ====================
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.55f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFFD8E1EC))
-                .border(2.dp, Color(0xFF94A3B8), RoundedCornerShape(16.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+        // 3. Bottom Bezel Buttons: [ Options (Y) ] | [ ▶ Open (A/B) ] | [ ❖ UI Hub ]
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Top Applet Strip + [⊟] / [⊞] Grid Zoom Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left: Classic Top Touch Applets (Notes, Friends, Notifications, Browser, UI Hub, Boost)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HandheldAppletPill(icon = "🎨", label = "Themes", tint = Color(0xFFE11D48), onClick = onOpenUiHub)
-                    HandheldAppletPill(icon = "😊", label = "Friends", tint = Color(0xFFF97316), onClick = onAllApps)
-                    HandheldAppletPill(icon = "🔔", label = "Alerts", tint = Color(0xFF10B981), onClick = onOptimize)
-                    HandheldAppletPill(icon = "🌐", label = "Settings", tint = Color(0xFF0284C7), onClick = onOpenSettings)
-                    HandheldAppletPill(
-                        icon = "⧉",
-                        label = if (isDualScreenMode) "2X DS" else "1X",
-                        tint = Color(0xFF6366F1),
-                        onClick = onToggleDualScreen
-                    )
-                }
-
-                // Right: Grid Size Zoom Buttons [⊟] (More Columns) and [⊞] (Larger Icons)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .shadow(2.dp, RoundedCornerShape(7.dp))
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(PureWhite)
-                            .border(1.dp, Color(0xFF94A3B8), RoundedCornerShape(7.dp))
-                            .clickable { gridColumns = (gridColumns + 1).coerceAtMost(6) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = "⊟", color = Color(0xFF1E293B), fontSize = 14.sp, fontWeight = FontWeight.Black)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .shadow(2.dp, RoundedCornerShape(7.dp))
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(PureWhite)
-                            .border(1.dp, Color(0xFF94A3B8), RoundedCornerShape(7.dp))
-                            .clickable { gridColumns = (gridColumns - 1).coerceAtLeast(2) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = "⊞", color = Color(0xFF1E293B), fontSize = 14.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-            }
-
-            // 2. Center Tactile Cartridge Slot Grid
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(gridColumns),
-                state = gridState,
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(vertical = 4.dp),
-                contentPadding = PaddingValues(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .weight(0.9f)
+                    .shadow(3.dp, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(PureWhite)
+                    .border(1.5.dp, Color(0xFF94A3B8), RoundedCornerShape(12.dp))
+                    .clickable { activeApp?.let(onOptions) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center
             ) {
-                itemsIndexed(apps, key = { _, app -> "ds3d_${app.id}" }) { index, app ->
-                    val isSelected = index == selectedIndex
-                    val slotHeight = when (gridColumns) {
-                        2 -> 76.dp
-                        3 -> 68.dp
-                        else -> 58.dp
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .height(slotHeight)
-                            .shadow(if (isSelected) 6.dp else 2.dp, RoundedCornerShape(12.dp))
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(PureWhite)
-                            .border(
-                                width = if (isSelected) 3.dp else 1.2.dp,
-                                color = if (isSelected) Color(0xFFF97316) else Color(0xFF94A3B8),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable {
-                                if (isSelected) onLaunch(app) else onIndexSelected(index)
-                            }
-                            .padding(5.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (app.iconBitmap != null) {
-                                Image(
-                                    bitmap = app.iconBitmap,
-                                    contentDescription = app.label,
-                                    modifier = Modifier
-                                        .size(if (gridColumns <= 3) 46.dp else 38.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Fit
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(app.accentColor.copy(alpha = 0.25f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = app.label.take(2).uppercase(),
-                                        color = Color(0xFF0F172A),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Black
-                                    )
-                                }
-                            }
-
-                            if (gridColumns <= 3) {
-                                Text(
-                                    text = app.label,
-                                    color = Color(0xFF0F172A),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        if (app.isFavorite) {
-                            Text(
-                                text = "★",
-                                color = Color(0xFFF59E0B),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(2.dp)
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = "Options (Y)",
+                    color = Color(0xFF1E293B),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
 
-            // 3. Classic 3-Part Bottom Touch Bezel Buttons: [ Options ] | [ ▶ Open ] | [ UI Hub ]
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .weight(1.25f)
+                    .shadow(4.dp, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFFFFEDD5), PureWhite)))
+                    .border(2.dp, Color(0xFFF97316), RoundedCornerShape(12.dp))
+                    .clickable { activeApp?.let(onLaunch) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // Left Bezel Button: Options / Manual
-                Box(
-                    modifier = Modifier
-                        .weight(0.9f)
-                        .shadow(3.dp, RoundedCornerShape(12.dp))
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(PureWhite)
-                        .border(1.5.dp, Color(0xFF94A3B8), RoundedCornerShape(12.dp))
-                        .clickable { activeApp?.let(onOptions) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Options (Y)",
-                        color = Color(0xFF1E293B),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
+                Text(
+                    text = "▶ Open ($confirmBtn)",
+                    color = Color(0xFFC2410C),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
 
-                // Center Primary Bezel Button: Open
-                Box(
-                    modifier = Modifier
-                        .weight(1.25f)
-                        .shadow(4.dp, RoundedCornerShape(12.dp))
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xFFFFEDD5), PureWhite)
-                            )
-                        )
-                        .border(2.dp, Color(0xFFF97316), RoundedCornerShape(12.dp))
-                        .clickable { activeApp?.let(onLaunch) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "▶ Open (A)",
-                        color = Color(0xFFC2410C),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-
-                // Right Bezel Button: UI Hub
-                Box(
-                    modifier = Modifier
-                        .weight(0.9f)
-                        .shadow(3.dp, RoundedCornerShape(12.dp))
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(PureWhite)
-                        .border(1.5.dp, Color(0xFF94A3B8), RoundedCornerShape(12.dp))
-                        .clickable(onClick = onOpenUiHub)
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "❖ UI Hub",
-                        color = Color(0xFFE11D48),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .weight(0.9f)
+                    .shadow(3.dp, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(PureWhite)
+                    .border(1.5.dp, Color(0xFF94A3B8), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenUiHub)
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "❖ UI Hub",
+                    color = Color(0xFFE11D48),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
         }
     }

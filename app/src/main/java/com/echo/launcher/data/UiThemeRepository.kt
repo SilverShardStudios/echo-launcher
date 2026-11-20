@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.ui.graphics.Color
 
+/**
+ * Catalog of console UI shells. All shells ship inside the APK; "installing" one simply
+ * enables it in the hub so the home screen stays uncluttered until you want it.
+ */
 class UiThemeRepository(context: Context) {
 
     private val prefs: SharedPreferences? = try {
@@ -24,16 +28,14 @@ class UiThemeRepository(context: Context) {
             title = "ECHO OS Cyber Core",
             subtitle = "Default Cybernetic Console OS",
             description = "High-contrast obsidian console interface with responsive ambient lighting, centered game carousel, and floating quick dock.",
-            version = "v1.4.0",
+            version = "v1.5.0",
             sizeText = "Built-in",
-            ratingText = "★ 4.9",
-            downloadsText = "Core OS",
             primaryAccent = Color(0xFF00E5FF),
             secondaryAccent = Color(0xFF10B981),
             layoutTag = "CYBER CAROUSEL",
             featureHighlights = listOf(
-                "Dynamic dominant-color ambient backlight",
-                "Centered 120Hz hardware-accelerated card carousel",
+                "Ambient backlight tinted by each game's icon color",
+                "Centered hardware-accelerated card carousel",
                 "Floating glass system dock & controller button guide"
             ),
             isBuiltIn = true
@@ -42,60 +44,52 @@ class UiThemeRepository(context: Context) {
             style = ConsoleUiStyle.NEXTGEN_MEDIA_BAR,
             id = "nextgen_5_horizon",
             title = "Horizon 5 Next-Gen Media UI",
-            subtitle = "Full-Screen Top Media Bar, Trophy Hub & Control Center",
-            description = "Full-screen living-room console architecture with top Games | Media header, top-left mini squircle media ribbon, golden particle flare backdrop, Trophy & Playtime tracker cards, and a pop-up bottom Control Center bar.",
-            version = "v3.0.0",
-            sizeText = "6.4 MB Pack",
-            ratingText = "★ 5.0",
-            downloadsText = "48.2K",
+            subtitle = "Top Media Bar, Real Playtime Stats & Control Center",
+            description = "Living-room console layout: Games | Media header, top-left icon ribbon with inline title, particle-flare backdrop, Play Game pill, real playtime / last-played cards and a pop-up Control Center.",
+            version = "v3.1.0",
+            sizeText = "Included",
             primaryAccent = Color(0xFF2563EB),
             secondaryAccent = Color(0xFFF59E0B),
             layoutTag = "FULL-SCREEN MEDIA BAR",
             featureHighlights = listOf(
-                "Top Games | Media text switcher + Search, Gear & Profile bar",
-                "Top-left mini squircle icon strip with inline active title",
-                "Bottom-left Play Game pill + Quick Control Center dock bar",
-                "Bottom-right Trophy Progress & Playtime Activity cards"
+                "Games | Media header with Search, Settings & profile",
+                "Top-left icon ribbon with inline active title",
+                "Playtime (30 days) & Last Played from real usage data",
+                "Pop-up Control Center dock"
             )
         ),
         UiThemePack(
             style = ConsoleUiStyle.HYBRID_DECK,
             id = "hybrid_portable_deck",
             title = "N-Hybrid Portable Deck UI",
-            subtitle = "Full-Screen Square Game Cartridges, Light/Dark Theme & Circular Dock",
-            description = "Authentic hybrid handheld home screen with floating cyan title above large 1:1 square game tiles, dual-layer pulsing cyan focus ring, Basic White / Basic Black theme toggle, and 6 colorful circular bottom system buttons.",
-            version = "v3.4.0",
-            sizeText = "5.1 MB Pack",
-            ratingText = "★ 4.9",
-            downloadsText = "62.7K",
+            subtitle = "Square Game Tiles, Light/Dark Theme & Circular Dock",
+            description = "Hybrid-handheld home screen: cyan title above large square tiles with a pulsing focus ring, Basic White / Basic Black theme, Recently Played ordering and six circular system buttons.",
+            version = "v3.5.0",
+            sizeText = "Included",
             primaryAccent = Color(0xFF00C3E3),
             secondaryAccent = Color(0xFFFF4554),
-            layoutTag = "SQUARE CARTRIDGE DECK",
+            layoutTag = "SQUARE TILE DECK",
             featureHighlights = listOf(
-                "1-Tap Basic Black / Basic White console theme toggle",
-                "Floating cyan title & cartridge indicator above focused square tile",
-                "6 circular system bubbles (News, UI Shop, Album, Boost, Settings, Sleep)",
-                "Full-width bottom divider rule with dual-controller status & (+) Options"
+                "1-tap Basic Black / Basic White theme",
+                "Cyan title above the focused square tile",
+                "6 circular system buttons + (+) Options / (A) Start bar"
             )
         ),
         UiThemePack(
             style = ConsoleUiStyle.DUAL_SCREEN_3D,
             id = "stereoscopic_dual_3d",
             title = "Dual-Screen 3D Handheld UI",
-            subtitle = "Upper 3D Rotating Cartridge Stage + Lower Stylus Touch Grid & Bezel",
-            description = "Authentic dual-screen handheld interface! Top screen features a 3D rotating cartridge stage with 5-bar signal, play-coin counter, date/time & 3D depth slider. Bottom touch screen features a 3D beveled icon grid with zoom controls and 3-part bottom bezel.",
-            version = "v3.2.0",
-            sizeText = "5.8 MB Pack",
-            ratingText = "★ 5.0",
-            downloadsText = "54.9K",
+            subtitle = "Upper 3D Stage + Lower Touch Grid & Bezel Buttons",
+            description = "Dual-screen handheld layout: top screen with a rotating 3D box stage, status strip and 3D depth switch; bottom touch screen with applet bar, zoomable icon grid and 3-part bezel buttons.",
+            version = "v3.3.0",
+            sizeText = "Included",
             primaryAccent = Color(0xFFE11D48),
             secondaryAccent = Color(0xFF0284C7),
             layoutTag = "UPPER 3D + LOWER GRID",
             featureHighlights = listOf(
-                "Top 3D rotating box-art stage with interactive 3D Depth slider",
-                "Top status bar with 5-bar wireless badge, Play Coins & live date/clock",
-                "Lower touch screen with [Miiverse / Friends / Notifications / Browser] applet bar",
-                "Dynamic [⊟]/[⊞] grid size zoom (1-Row up to 6-Column grid) + [Options | Open | UI Hub] bottom bezel"
+                "Rotating 3D box stage with 3D depth switch",
+                "Status strip with signal, library count & clock",
+                "Zoomable touch grid (2-6 columns) + Options | Open | UI Hub bezel"
             )
         )
     )
@@ -108,9 +102,7 @@ class UiThemeRepository(context: Context) {
         }
         val result = HashSet<String>()
         result.add("echo_core_os")
-        if (saved != null) {
-            result.addAll(saved)
-        }
+        if (saved != null) result.addAll(saved)
         return result
     }
 
@@ -121,14 +113,6 @@ class UiThemeRepository(context: Context) {
             prefs?.edit()?.putStringSet("downloaded_ui_packs", current)?.apply()
         } catch (_: Throwable) {}
         return current
-    }
-
-    fun markAllPacksDownloaded(): Set<String> {
-        val allIds = availablePacks.map { it.id }.toSet()
-        try {
-            prefs?.edit()?.putStringSet("downloaded_ui_packs", allIds)?.apply()
-        } catch (_: Throwable) {}
-        return allIds
     }
 
     fun removePackDownload(packId: String): Set<String> {
@@ -164,5 +148,39 @@ class UiThemeRepository(context: Context) {
         get() = try { prefs?.getBoolean("hybrid_light_theme", false) ?: false } catch (_: Throwable) { false }
         set(value) {
             try { prefs?.edit()?.putBoolean("hybrid_light_theme", value)?.apply() } catch (_: Throwable) {}
+        }
+
+    /** Library ordering: true = most recently played first (needs Usage access), false = A-Z. */
+    var sortByRecentlyPlayed: Boolean
+        get() = try { prefs?.getBoolean("sort_recent", true) ?: true } catch (_: Throwable) { true }
+        set(value) {
+            try { prefs?.edit()?.putBoolean("sort_recent", value)?.apply() } catch (_: Throwable) {}
+        }
+
+    var gamepadLayout: GamepadLayout
+        get() {
+            val raw = try {
+                prefs?.getString("gamepad_layout", GamepadLayout.ABXY.name)
+            } catch (_: Throwable) {
+                GamepadLayout.ABXY.name
+            }
+            return try {
+                GamepadLayout.valueOf(raw ?: GamepadLayout.ABXY.name)
+            } catch (_: Throwable) {
+                GamepadLayout.ABXY
+            }
+        }
+        set(value) {
+            try { prefs?.edit()?.putString("gamepad_layout", value.name)?.apply() } catch (_: Throwable) {}
+        }
+
+    var dual3dGridColumns: Int
+        get() = try {
+            (prefs?.getInt("dual_3d_grid_columns", 4) ?: 4).coerceIn(2, 6)
+        } catch (_: Throwable) {
+            4
+        }
+        set(value) {
+            try { prefs?.edit()?.putInt("dual_3d_grid_columns", value.coerceIn(2, 6))?.apply() } catch (_: Throwable) {}
         }
 }

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.echo.launcher.data.DockAction
 import com.echo.launcher.data.FocusZone
+import com.echo.launcher.data.GamepadLayout
 import com.echo.launcher.ui.theme.PlatinumWhite
 import com.echo.launcher.ui.theme.TextMuted
 
@@ -30,6 +31,7 @@ fun ConsoleFooter(
     onActionSelected: (Int) -> Unit,
     onActionTriggered: (DockAction) -> Unit,
     currentFocusZone: FocusZone,
+    gamepadLayout: GamepadLayout = GamepadLayout.ABXY,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -48,17 +50,18 @@ fun ConsoleFooter(
         )
 
         // Right: Controller Button Legend Guide
-        ConsoleButtonGuide()
+        ConsoleButtonGuide(gamepadLayout = gamepadLayout)
     }
 }
 
 @Composable
-fun ConsoleButtonGuide() {
+fun ConsoleButtonGuide(gamepadLayout: GamepadLayout = GamepadLayout.ABXY) {
+    val confirmBtn = if (gamepadLayout == GamepadLayout.ABXY) "A" else "B"
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        ControllerButtonHint(badge = "A", color = Color(0xFF00E5FF), label = "Play")
+        ControllerButtonHint(badge = confirmBtn, color = Color(0xFF00E5FF), label = "Play")
         ControllerButtonHint(badge = "X", color = Color(0xFF3B82F6), label = "All Apps")
         ControllerButtonHint(badge = "Y", color = Color(0xFFEAB308), label = "Options")
         ControllerButtonHint(badge = "L1/R1", color = Color.White.copy(alpha = 0.85f), isPill = true, label = "Switch Tab")

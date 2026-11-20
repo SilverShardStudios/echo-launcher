@@ -60,8 +60,6 @@ data class UiThemePack(
     val description: String,
     val version: String,
     val sizeText: String,
-    val ratingText: String,
-    val downloadsText: String,
     val primaryAccent: Color,
     val secondaryAccent: Color,
     val layoutTag: String,

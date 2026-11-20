@@ -46,16 +46,11 @@ class DeviceOptimizer(private val context: Context) {
         }
     }
 
+    /** Off by default: stopping background apps before every launch costs time and rarely helps. */
     var isAutoBoostEnabled: Boolean
-        get() = try { prefs?.getBoolean("auto_boost_before_launch", true) ?: true } catch (_: Throwable) { true }
+        get() = try { prefs?.getBoolean("auto_boost_before_launch", false) ?: false } catch (_: Throwable) { false }
         set(value) {
             try { prefs?.edit()?.putBoolean("auto_boost_before_launch", value)?.apply() } catch (_: Throwable) {}
-        }
-
-    var performanceMode: String
-        get() = try { prefs?.getString("perf_mode", "TURBO") ?: "TURBO" } catch (_: Throwable) { "TURBO" }
-        set(value) {
-            try { prefs?.edit()?.putString("perf_mode", value)?.apply() } catch (_: Throwable) {}
         }
 
     fun getTelemetry(): SystemTelemetry {
@@ -64,25 +59,20 @@ class DeviceOptimizer(private val context: Context) {
             val memInfo = ActivityManager.MemoryInfo()
             am?.getMemoryInfo(memInfo)
 
-            val totalRamMb = ((memInfo.totalMem.takeIf { it > 0 } ?: (4L * 1024L * 1024L * 1024L)) / (1024L * 1024L)).coerceAtLeast(512L)
-            val freeRamMb = (memInfo.availMem / (1024L * 1024L)).coerceIn(64L, totalRamMb)
+            val totalRamMb = (memInfo.totalMem / (1024L * 1024L)).coerceAtLeast(1L)
+            val freeRamMb = (memInfo.availMem / (1024L * 1024L)).coerceIn(0L, totalRamMb)
             val usedRamMb = (totalRamMb - freeRamMb).coerceAtLeast(0L)
-            val ramPercent = ((usedRamMb * 100L) / totalRamMb).toInt().coerceIn(1, 99)
+            val ramPercent = ((usedRamMb * 100L) / totalRamMb).toInt().coerceIn(0, 100)
 
-            val dataDir = Environment.getDataDirectory()
-            val stat = StatFs(dataDir.path)
-            val blockSize = stat.blockSizeLong
-            val totalBlocks = stat.blockCountLong
-            val availBlocks = stat.availableBlocksLong
-
-            val totalStorageGb = ((totalBlocks * blockSize).toDouble() / (1024.0 * 1024.0 * 1024.0)).toFloat().coerceAtLeast(1f)
-            val freeStorageGb = ((availBlocks * blockSize).toDouble() / (1024.0 * 1024.0 * 1024.0)).toFloat().coerceAtLeast(0f)
-            val usedStorageGb = (totalStorageGb - freeStorageGb).coerceAtLeast(0f)
-            val storagePercent = ((usedStorageGb / totalStorageGb) * 100f).toInt().coerceIn(1, 99)
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val gb = 1024.0 * 1024.0 * 1024.0
+            val totalStorageGb = (stat.blockCountLong * stat.blockSizeLong / gb).toFloat().coerceAtLeast(0.1f)
+            val freeStorageGb = (stat.availableBlocksLong * stat.blockSizeLong / gb).toFloat().coerceAtLeast(0f)
+            val storagePercent = (((totalStorageGb - freeStorageGb) / totalStorageGb) * 100f).toInt().coerceIn(0, 100)
 
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
             @Suppress("DEPRECATION")
-            val hz = wm?.defaultDisplay?.refreshRate?.toInt()?.coerceIn(30, 240) ?: 60
+            val hz = wm?.defaultDisplay?.refreshRate?.toInt()?.coerceIn(1, 480) ?: 60
 
             SystemTelemetry(
                 usedRamMb = usedRamMb,
@@ -95,111 +85,60 @@ class DeviceOptimizer(private val context: Context) {
                 refreshRateHz = hz
             )
         } catch (_: Throwable) {
-            SystemTelemetry(
-                usedRamMb = 1800L,
-                totalRamMb = 4096L,
-                freeRamMb = 2296L,
-                ramUsagePercent = 44,
-                freeStorageGb = 24.5f,
-                totalStorageGb = 64.0f,
-                storageUsagePercent = 62,
-                refreshRateHz = 60
-            )
+            SystemTelemetry(0L, 1L, 0L, 0, 0f, 0.1f, 0, 60)
         }
     }
 
     /**
-     * Executes a full 1-Tap Device Optimization pass:
-     * 1. Terminates background cached/service processes for non-system apps via KILL_BACKGROUND_PROCESSES
-     * 2. Sweeps running background processes reported by ActivityManager
-     * 3. Triggers JVM finalization & garbage collection to compact heap memory
-     * 4. Computes freed RAM & updated telemetry
+     * 1-tap optimization pass. Everything reported is measured, nothing is estimated:
+     * 1. Asks Android to stop cached background processes (KILL_BACKGROUND_PROCESSES).
+     *    The app about to be launched (excludePackage) is never touched, so it keeps its resume state.
+     * 2. Runs GC on ECHO OS itself.
+     * 3. Re-reads MemoryInfo and reports the real before/after difference (can be 0 MB if
+     *    Android had already reclaimed that memory on its own).
      */
-    suspend fun optimizeDevice(installedApps: List<AppItem>): OptimizationResult = withContext(Dispatchers.IO) {
+    suspend fun optimizeDevice(
+        installedApps: List<AppItem>,
+        excludePackage: String? = null
+    ): OptimizationResult = withContext(Dispatchers.IO) {
         val before = getTelemetry()
-        var clearedCount = 0
+        var requestedCount = 0
 
         try {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
             val myPkg = context.packageName
-
             if (am != null) {
-                val targetPackages = HashSet<String>()
-
-                // Include all launchable user/game/media apps except ECHO OS itself
-                for (app in installedApps) {
-                    if (app.packageName != myPkg &&
-                        !app.packageName.startsWith("com.android.systemui") &&
-                        !app.packageName.startsWith("android")
-                    ) {
-                        targetPackages.add(app.packageName)
-                    }
-                }
-
-                // Also inspect any running background processes visible to ActivityManager
-                try {
-                    val runningProcs = am.runningAppProcesses
-                    if (runningProcs != null) {
-                        for (proc in runningProcs) {
-                            if (proc.importance >= ActivityManager.RunningAppProcessInfo.IMPORTANCE_BACKGROUND) {
-                                proc.pkgList?.forEach { pkg ->
-                                    if (pkg != myPkg && !pkg.startsWith("com.android.systemui")) {
-                                        targetPackages.add(pkg)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (_: Throwable) {}
-
-                for (pkg in targetPackages) {
+                val targets = installedApps.asSequence()
+                    .map { it.packageName }
+                    .filter { it != myPkg && it != excludePackage && it != "android" && !it.startsWith("com.android.systemui") }
+                    .toSet()
+                for (pkg in targets) {
                     try {
                         am.killBackgroundProcesses(pkg)
-                        clearedCount++
+                        requestedCount++
                     } catch (_: Throwable) {}
                 }
             }
-
-            // Trigger heap compaction
-            System.runFinalization()
             Runtime.getRuntime().gc()
-            System.gc()
         } catch (_: Throwable) {}
 
-        // Brief settle delay so kernel updates MemoryInfo counters
-        delay(220)
+        delay(400) // let the kernel update its counters before measuring again
 
         val after = getTelemetry()
-        val rawDiff = (after.freeRamMb - before.freeRamMb).coerceAtLeast(0L)
-
-        // If Android cached pages were already warm, report either the measured kernel delta or a realistic cache trim metric
-        val effectiveFreedMb = if (rawDiff > 8L) {
-            rawDiff
-        } else if (clearedCount > 0) {
-            (clearedCount * 6L).coerceIn(24L, 180L)
+        val freedMb = (after.freeRamMb - before.freeRamMb).coerceAtLeast(0L)
+        val message = if (freedMb > 0) {
+            "Freed $freedMb MB RAM \u2022 ${before.ramUsagePercent}% \u2192 ${after.ramUsagePercent}% used"
         } else {
-            16L
+            "RAM already clean (${after.ramUsagePercent}% used) \u2022 nothing left to reclaim"
         }
-
-        val adjustedAfterPercent = if (after.ramUsagePercent < before.ramUsagePercent) {
-            after.ramUsagePercent
-        } else {
-            (before.ramUsagePercent - ((effectiveFreedMb * 100L) / before.totalRamMb).toInt().coerceAtLeast(2)).coerceAtLeast(15)
-        }
-
-        val adjustedTelemetry = after.copy(
-            freeRamMb = (before.freeRamMb + effectiveFreedMb).coerceAtMost(before.totalRamMb - 256L),
-            usedRamMb = (before.usedRamMb - effectiveFreedMb).coerceAtLeast(256L),
-            ramUsagePercent = adjustedAfterPercent
-        )
 
         OptimizationResult(
-            freedRamMb = effectiveFreedMb,
-            appsClearedCount = clearedCount.coerceAtLeast(3),
+            freedRamMb = freedMb,
+            appsClearedCount = requestedCount,
             ramPercentBefore = before.ramUsagePercent,
-            ramPercentAfter = adjustedAfterPercent,
-            telemetryAfter = adjustedTelemetry,
-            statusMessage = "Freed ${effectiveFreedMb} MB RAM • Optimized ${clearedCount.coerceAtLeast(3)} Background Tasks • ${after.refreshRateHz}Hz Locked"
+            ramPercentAfter = after.ramUsagePercent,
+            telemetryAfter = after,
+            statusMessage = message
         )
     }
 }

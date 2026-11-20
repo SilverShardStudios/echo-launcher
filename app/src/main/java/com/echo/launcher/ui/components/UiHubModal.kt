@@ -34,9 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +71,8 @@ fun UiHubModal(
     downloadingPackId: String?,
     downloadProgress: Float,
     selectedIndex: Int,
+    selectedFilter: String,
+    onFilterChange: (String) -> Unit,
     onSelectIndex: (Int) -> Unit,
     onDownloadOrApply: (UiThemePack) -> Unit,
     onInstantPreview: (UiThemePack) -> Unit,
@@ -87,24 +87,13 @@ fun UiHubModal(
         exit = fadeOut(tween(180)),
         modifier = modifier.fillMaxSize()
     ) {
-        var selectedFilter by remember { mutableStateOf("ALL") }
-
         val visiblePacks = remember(packs, selectedFilter, downloadedPackIds) {
-            when (selectedFilter) {
-                "INSTALLED" -> packs.filter { downloadedPackIds.contains(it.id) }
-                "LIVING ROOM" -> packs.filter {
-                    it.style == ConsoleUiStyle.NEXTGEN_MEDIA_BAR || it.style == ConsoleUiStyle.ECHO_DEFAULT
-                }
-                "HANDHELD" -> packs.filter {
-                    it.style == ConsoleUiStyle.HYBRID_DECK || it.style == ConsoleUiStyle.DUAL_SCREEN_3D
-                }
-                else -> packs
-            }
+            filterUiPacks(packs, selectedFilter, downloadedPackIds)
         }
 
         val listState = rememberLazyListState()
         val safeSelectedIndex = selectedIndex.coerceIn(0, (visiblePacks.size - 1).coerceAtLeast(0))
-        val focusedPack = visiblePacks.getOrNull(safeSelectedIndex) ?: packs.firstOrNull()
+        val focusedPack = visiblePacks.getOrNull(safeSelectedIndex)
 
         LaunchedEffect(safeSelectedIndex, visiblePacks.size) {
             if (visiblePacks.isNotEmpty() && safeSelectedIndex in visiblePacks.indices) {
@@ -133,7 +122,7 @@ fun UiHubModal(
                     ),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // 1. TOP STORE HEADER + CATEGORY TABS + DOWNLOAD ALL BUTTON
+                // 1. TOP STORE HEADER + CATEGORY TABS + INSTALL ALL BUTTON
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -163,7 +152,7 @@ fun UiHubModal(
                                 letterSpacing = 0.8.sp
                             )
                             Text(
-                                text = "DOWNLOAD, PREVIEW & HOT-SWAP FULL CONSOLE HOME INTERFACES",
+                                text = "INSTALL, TEST-DRIVE & HOT-SWAP CONSOLE INTERFACES  •  L1/R1 CATEGORY  •  Y TEST DRIVE",
                                 color = ElectricCyan,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
@@ -175,7 +164,7 @@ fun UiHubModal(
 
                         // Filter Tabs: ALL | INSTALLED | LIVING ROOM | HANDHELD
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("ALL", "INSTALLED", "LIVING ROOM", "HANDHELD").forEach { tab ->
+                            UI_HUB_FILTERS.forEach { tab ->
                                 val isTabActive = selectedFilter == tab
                                 Box(
                                     modifier = Modifier
@@ -186,10 +175,7 @@ fun UiHubModal(
                                             if (isTabActive) ElectricCyan else SurfaceBorder,
                                             RoundedCornerShape(12.dp)
                                         )
-                                        .clickable {
-                                            selectedFilter = tab
-                                            onSelectIndex(0)
-                                        }
+                                        .clickable { onFilterChange(tab) }
                                         .padding(horizontal = 9.dp, vertical = 4.dp)
                                 ) {
                                     Text(
@@ -203,7 +189,7 @@ fun UiHubModal(
                         }
                     }
 
-                    // Right Header Actions: Download All + Close
+                    // Right Header Actions: Install All + Close
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -218,7 +204,7 @@ fun UiHubModal(
                                     .padding(horizontal = 11.dp, vertical = 5.dp)
                             ) {
                                 Text(
-                                    text = "⬇ Download All (${packs.size})",
+                                    text = "⬇ Install All (${packs.size})",
                                     color = StatusGreen,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Black
@@ -233,7 +219,7 @@ fun UiHubModal(
                                     .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
                                 Text(
-                                    text = "✓ ALL ${packs.size} PACKS READY",
+                                    text = "✓ ALL ${packs.size} READY",
                                     color = StatusGreen,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Black,
@@ -271,35 +257,51 @@ fun UiHubModal(
                     }
                 }
 
-                // 2. INTERACTIVE UI PACK CARDS CAROUSEL
-                LazyRow(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 4.dp, horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    itemsIndexed(visiblePacks, key = { _, pack -> pack.id }) { index, pack ->
-                        val isSelected = index == safeSelectedIndex
-                        val isDownloaded = downloadedPackIds.contains(pack.id)
-                        val isActive = activeStyle == pack.style
-                        val isDownloadingThis = downloadingPackId == pack.id
-
-                        UiPackCard(
-                            pack = pack,
-                            isSelected = isSelected,
-                            isDownloaded = isDownloaded,
-                            isActive = isActive,
-                            isDownloading = isDownloadingThis,
-                            downloadProgress = if (isDownloadingThis) downloadProgress else 0f,
-                            onClick = {
-                                if (isSelected) {
-                                    onDownloadOrApply(pack)
-                                } else {
-                                    onSelectIndex(index)
-                                }
-                            }
+                // 2. INTERACTIVE UI PACK CARDS CAROUSEL (or Empty State)
+                if (visiblePacks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(198.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No UI shells in this category",
+                            color = TextMuted,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
+                    }
+                } else {
+                    LazyRow(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 4.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        itemsIndexed(visiblePacks, key = { _, pack -> pack.id }) { index, pack ->
+                            val isSelected = index == safeSelectedIndex
+                            val isDownloaded = downloadedPackIds.contains(pack.id)
+                            val isActive = activeStyle == pack.style
+                            val isDownloadingThis = downloadingPackId == pack.id
+
+                            UiPackCard(
+                                pack = pack,
+                                isSelected = isSelected,
+                                isDownloaded = isDownloaded,
+                                isActive = isActive,
+                                isDownloading = isDownloadingThis,
+                                downloadProgress = if (isDownloadingThis) downloadProgress else 0f,
+                                onClick = {
+                                    if (isSelected) {
+                                        onDownloadOrApply(pack)
+                                    } else {
+                                        onSelectIndex(index)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -348,12 +350,6 @@ fun UiHubModal(
                                         fontFamily = FontFamily.Monospace
                                     )
                                 }
-                                Text(
-                                    text = "${focusedPack.ratingText} (${focusedPack.downloadsText})",
-                                    color = Color(0xFFFBBF24),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
 
                             Text(
@@ -391,7 +387,7 @@ fun UiHubModal(
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        // Right Action Buttons: Uninstall | Instant Test Drive | Download & Apply
+                        // Right Action Buttons: Uninstall | Instant Test Drive | Install & Apply
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -415,13 +411,15 @@ fun UiHubModal(
                             }
 
                             if (!isActive) {
-                                Box(
+                                Row(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(SurfaceCard)
                                         .border(1.dp, focusedPack.primaryAccent.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
                                         .clickable { onInstantPreview(focusedPack) }
-                                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
                                         text = "👁 Test Drive",
@@ -429,6 +427,20 @@ fun UiHubModal(
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(15.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEAB308).copy(alpha = 0.22f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Y",
+                                            color = Color(0xFFEAB308),
+                                            fontSize = 8.5.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
                                 }
                             }
 
@@ -439,10 +451,10 @@ fun UiHubModal(
                             }
 
                             val btnLabel = when {
-                                isDownloading -> "DOWNLOADING ${(downloadProgress * 100).toInt()}%..."
+                                isDownloading -> "INSTALLING..."
                                 isActive -> "✓ ACTIVE CONSOLE UI"
                                 isDownloaded -> "⚡ APPLY UI SHELL"
-                                else -> "⬇ DOWNLOAD & APPLY"
+                                else -> "⬇ INSTALL & APPLY"
                             }
 
                             Box(
@@ -556,7 +568,7 @@ private fun UiPackCard(
         ) {
             UiSchematicCanvas(pack = pack)
 
-            // Rating pill top-left
+            // Version pill top-left
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -566,10 +578,11 @@ private fun UiPackCard(
                     .padding(horizontal = 5.dp, vertical = 1.5.dp)
             ) {
                 Text(
-                    text = pack.ratingText,
-                    color = Color(0xFFFBBF24),
+                    text = pack.version,
+                    color = ElectricCyan,
                     fontSize = 8.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
                 )
             }
 
@@ -577,7 +590,7 @@ private fun UiPackCard(
             val badgeText = when {
                 isActive -> "● ACTIVE"
                 isDownloaded -> "✓ INSTALLED"
-                else -> "⬇ CLOUD"
+                else -> "AVAILABLE"
             }
             val badgeColor = when {
                 isActive -> StatusGreen
@@ -652,13 +665,13 @@ private fun UiPackCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${pack.sizeText} • ${pack.downloadsText}",
+                    text = pack.sizeText,
                     color = PlatinumWhite,
                     fontSize = 9.5.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = if (isActive) "Running" else if (isDownloaded) "▶ Apply" else "⬇ Get Pack",
+                    text = if (isActive) "Running" else if (isDownloaded) "▶ Apply" else "⬇ Install",
                     color = if (isActive) StatusGreen else if (isDownloaded) pack.primaryAccent else PureWhite,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -703,7 +716,6 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                 )
             }
             ConsoleUiStyle.NEXTGEN_MEDIA_BAR -> {
-                // Top-left mini squircle strip + lower-left Play Game pill + lower-right Trophy cards
                 for (i in 0 until 6) {
                     val isFirst = i == 1
                     val s = if (isFirst) 15.dp.toPx() else 11.dp.toPx()
@@ -714,7 +726,6 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                     )
                 }
-                // Hero title & Play Game pill bottom-left
                 drawRoundRect(
                     color = Color.White.copy(alpha = 0.85f),
                     topLeft = Offset(6.dp.toPx(), size.height * 0.56f),
@@ -727,7 +738,6 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                     size = Size(size.width * 0.26f, 11.dp.toPx()),
                     cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
                 )
-                // Trophy Card bottom-right
                 drawRoundRect(
                     color = pack.secondaryAccent.copy(alpha = 0.55f),
                     topLeft = Offset(size.width * 0.62f, size.height * 0.56f),
@@ -736,7 +746,6 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                 )
             }
             ConsoleUiStyle.HYBRID_DECK -> {
-                // Large 1:1 square tiles row + 6 circular dock bubbles + bottom rule
                 val sq = size.height * 0.42f
                 for (i in 0 until 4) {
                     val active = i == 1
@@ -756,14 +765,12 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                 }
             }
             ConsoleUiStyle.DUAL_SCREEN_3D -> {
-                // Top 3D rotating cartridge stage + bottom light touch grid & 3 bezel buttons
                 drawRoundRect(
                     color = Color(0xFF2E4369),
                     topLeft = Offset(size.width * 0.08f, 14.dp.toPx()),
                     size = Size(size.width * 0.84f, size.height * 0.34f),
                     cornerRadius = cr
                 )
-                // Lower light touch screen
                 drawRoundRect(
                     color = Color(0xFFD8E1EC).copy(alpha = 0.85f),
                     topLeft = Offset(size.width * 0.08f, size.height * 0.54f),
@@ -772,5 +779,20 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                 )
             }
         }
+    }
+}
+
+val UI_HUB_FILTERS = listOf("ALL", "INSTALLED", "LIVING ROOM", "HANDHELD")
+
+fun filterUiPacks(packs: List<UiThemePack>, filter: String, installed: Set<String>): List<UiThemePack> {
+    return when (filter) {
+        "INSTALLED" -> packs.filter { installed.contains(it.id) }
+        "LIVING ROOM" -> packs.filter {
+            it.style == ConsoleUiStyle.NEXTGEN_MEDIA_BAR || it.style == ConsoleUiStyle.ECHO_DEFAULT
+        }
+        "HANDHELD" -> packs.filter {
+            it.style == ConsoleUiStyle.HYBRID_DECK || it.style == ConsoleUiStyle.DUAL_SCREEN_3D
+        }
+        else -> packs
     }
 }
