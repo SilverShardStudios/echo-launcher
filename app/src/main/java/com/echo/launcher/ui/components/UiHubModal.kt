@@ -34,7 +34,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,36 +75,53 @@ fun UiHubModal(
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
     onDownloadOrApply: (UiThemePack) -> Unit,
+    onInstantPreview: (UiThemePack) -> Unit,
+    onDownloadAllPacks: () -> Unit,
     onUninstallPack: (UiThemePack) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
         visible = isOpen,
-        enter = fadeIn(tween(200)),
-        exit = fadeOut(tween(200)),
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(180)),
         modifier = modifier.fillMaxSize()
     ) {
-        val listState = rememberLazyListState()
+        var selectedFilter by remember { mutableStateOf("ALL") }
 
-        LaunchedEffect(selectedIndex) {
-            if (packs.isNotEmpty() && selectedIndex in packs.indices) {
-                listState.animateScrollToItem(selectedIndex)
+        val visiblePacks = remember(packs, selectedFilter, downloadedPackIds) {
+            when (selectedFilter) {
+                "INSTALLED" -> packs.filter { downloadedPackIds.contains(it.id) }
+                "LIVING ROOM" -> packs.filter {
+                    it.style == ConsoleUiStyle.NEXTGEN_MEDIA_BAR || it.style == ConsoleUiStyle.ECHO_DEFAULT
+                }
+                "HANDHELD" -> packs.filter {
+                    it.style == ConsoleUiStyle.HYBRID_DECK || it.style == ConsoleUiStyle.DUAL_SCREEN_3D
+                }
+                else -> packs
             }
         }
 
-        val focusedPack = packs.getOrNull(selectedIndex) ?: packs.firstOrNull()
+        val listState = rememberLazyListState()
+        val safeSelectedIndex = selectedIndex.coerceIn(0, (visiblePacks.size - 1).coerceAtLeast(0))
+        val focusedPack = visiblePacks.getOrNull(safeSelectedIndex) ?: packs.firstOrNull()
+
+        LaunchedEffect(safeSelectedIndex, visiblePacks.size) {
+            if (visiblePacks.isNotEmpty() && safeSelectedIndex in visiblePacks.indices) {
+                listState.animateScrollToItem(safeSelectedIndex)
+            }
+        }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ObsidianBackground.copy(alpha = 0.95f))
+                .background(ObsidianBackground.copy(alpha = 0.96f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = onDismiss
                 )
-                .padding(horizontal = 28.dp, vertical = 18.dp)
+                .padding(horizontal = 26.dp, vertical = 14.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -110,11 +129,11 @@ fun UiHubModal(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {} // Consume inner clicks
+                        onClick = {} // Consume inner click
                     ),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Header
+                // 1. TOP STORE HEADER + CATEGORY TABS + DOWNLOAD ALL BUTTON
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -128,48 +147,99 @@ fun UiHubModal(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(ElectricCyan.copy(alpha = 0.18f))
-                                .border(1.2.dp, ElectricCyan, RoundedCornerShape(10.dp)),
+                                .background(Color(0xFFF59E0B).copy(alpha = 0.18f))
+                                .border(1.2.dp, Color(0xFFF59E0B), RoundedCornerShape(10.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "❖", color = ElectricCyan, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                            Text(text = "❖", color = Color(0xFFF59E0B), fontSize = 18.sp, fontWeight = FontWeight.Black)
                         }
+
                         Column {
                             Text(
-                                text = "ECHO UI HUB & CONSOLE SHELL STORE",
+                                text = "ECHO UI HUB // CONSOLE ARCHITECTURE STORE",
                                 color = PureWhite,
-                                fontSize = 17.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
+                                letterSpacing = 0.8.sp
                             )
                             Text(
-                                text = "DOWNLOAD & HOT-SWAP COMPLETE CONSOLE INTERFACE ARCHITECTURES",
+                                text = "DOWNLOAD, PREVIEW & HOT-SWAP FULL CONSOLE HOME INTERFACES",
                                 color = ElectricCyan,
-                                fontSize = 9.5.sp,
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Filter Tabs: ALL | INSTALLED | LIVING ROOM | HANDHELD
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("ALL", "INSTALLED", "LIVING ROOM", "HANDHELD").forEach { tab ->
+                                val isTabActive = selectedFilter == tab
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isTabActive) ElectricCyan else SurfaceCard)
+                                        .border(
+                                            1.dp,
+                                            if (isTabActive) ElectricCyan else SurfaceBorder,
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable {
+                                            selectedFilter = tab
+                                            onSelectIndex(0)
+                                        }
+                                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = tab,
+                                        color = if (isTabActive) Color.Black else TextMuted,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                        }
                     }
 
+                    // Right Header Actions: Download All + Close
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(StatusGreen.copy(alpha = 0.15f))
-                                .border(1.dp, StatusGreen.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = "${downloadedPackIds.size}/${packs.size} INSTALLED",
-                                color = StatusGreen,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace
-                            )
+                        if (downloadedPackIds.size < packs.size) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(StatusGreen.copy(alpha = 0.16f))
+                                    .border(1.dp, StatusGreen, RoundedCornerShape(14.dp))
+                                    .clickable(onClick = onDownloadAllPacks)
+                                    .padding(horizontal = 11.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = "⬇ Download All (${packs.size})",
+                                    color = StatusGreen,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(StatusGreen.copy(alpha = 0.14f))
+                                    .border(1.dp, StatusGreen.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = "✓ ALL ${packs.size} PACKS READY",
+                                    color = StatusGreen,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
 
                         Row(
@@ -178,39 +248,39 @@ fun UiHubModal(
                                 .background(SurfaceCard)
                                 .border(1.dp, SurfaceBorder, RoundedCornerShape(16.dp))
                                 .clickable(onClick = onDismiss)
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(16.dp)
+                                    .size(15.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFFFF334B)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(text = "B", color = PureWhite, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text(text = "B", color = PureWhite, fontSize = 8.5.sp, fontWeight = FontWeight.Black)
                             }
                             Text(
-                                text = "Close Hub",
+                                text = "Close",
                                 color = PureWhite,
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
                 }
 
-                // UI Cards Carousel
+                // 2. INTERACTIVE UI PACK CARDS CAROUSEL
                 LazyRow(
                     state = listState,
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 6.dp, horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp, horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    itemsIndexed(packs, key = { _, pack -> pack.id }) { index, pack ->
-                        val isSelected = index == selectedIndex
+                    itemsIndexed(visiblePacks, key = { _, pack -> pack.id }) { index, pack ->
+                        val isSelected = index == safeSelectedIndex
                         val isDownloaded = downloadedPackIds.contains(pack.id)
                         val isActive = activeStyle == pack.style
                         val isDownloadingThis = downloadingPackId == pack.id
@@ -233,7 +303,7 @@ fun UiHubModal(
                     }
                 }
 
-                // Selected UI Pack Details & Action Bar
+                // 3. DETAILED INSPECTOR & ACTION DECK FOR FOCUSED UI PACK
                 if (focusedPack != null) {
                     val isDownloaded = downloadedPackIds.contains(focusedPack.id)
                     val isActive = activeStyle == focusedPack.style
@@ -244,14 +314,15 @@ fun UiHubModal(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
                             .background(SurfaceCardElevated)
-                            .border(1.dp, focusedPack.primaryAccent.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                            .border(1.2.dp, focusedPack.primaryAccent.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
+                            .padding(horizontal = 18.dp, vertical = 11.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Left Inspector Details + Feature Highlights
                         Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                            modifier = Modifier.weight(1.3f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -260,7 +331,7 @@ fun UiHubModal(
                                 Text(
                                     text = focusedPack.title,
                                     color = PureWhite,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.5.sp,
                                     fontWeight = FontWeight.Black
                                 )
                                 Box(
@@ -272,26 +343,58 @@ fun UiHubModal(
                                     Text(
                                         text = "${focusedPack.version} • ${focusedPack.sizeText}",
                                         color = focusedPack.primaryAccent,
-                                        fontSize = 9.5.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                     )
                                 }
+                                Text(
+                                    text = "${focusedPack.ratingText} (${focusedPack.downloadsText})",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
+
                             Text(
                                 text = focusedPack.description,
                                 color = TextSecondary,
-                                fontSize = 11.5.sp,
-                                maxLines = 2,
+                                fontSize = 11.sp,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+
+                            // Feature Highlight Chips
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                focusedPack.featureHighlights.take(3).forEach { feat ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.White.copy(alpha = 0.06f))
+                                            .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "• $feat",
+                                            color = PlatinumWhite,
+                                            fontSize = 9.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
                         }
 
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
 
+                        // Right Action Buttons: Uninstall | Instant Test Drive | Download & Apply
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (isDownloaded && !focusedPack.isBuiltIn && !isActive) {
                                 Box(
@@ -300,11 +403,29 @@ fun UiHubModal(
                                         .background(SurfaceCard)
                                         .border(1.dp, SurfaceBorder, RoundedCornerShape(12.dp))
                                         .clickable { onUninstallPack(focusedPack) }
-                                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                                        .padding(horizontal = 11.dp, vertical = 9.dp)
                                 ) {
                                     Text(
                                         text = "Uninstall",
                                         color = TextMuted,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            if (!isActive) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(SurfaceCard)
+                                        .border(1.dp, focusedPack.primaryAccent.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                                        .clickable { onInstantPreview(focusedPack) }
+                                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                                ) {
+                                    Text(
+                                        text = "👁 Test Drive",
+                                        color = focusedPack.primaryAccent,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -319,9 +440,9 @@ fun UiHubModal(
 
                             val btnLabel = when {
                                 isDownloading -> "DOWNLOADING ${(downloadProgress * 100).toInt()}%..."
-                                isActive -> "✓ ACTIVE UI SHELL"
+                                isActive -> "✓ ACTIVE CONSOLE UI"
                                 isDownloaded -> "⚡ APPLY UI SHELL"
-                                else -> "⬇ DOWNLOAD & INSTALL"
+                                else -> "⬇ DOWNLOAD & APPLY"
                             }
 
                             Box(
@@ -331,17 +452,17 @@ fun UiHubModal(
                                     .clickable(enabled = !isDownloading) {
                                         onDownloadOrApply(focusedPack)
                                     }
-                                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                                    .padding(horizontal = 16.dp, vertical = 9.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                                 ) {
                                     Text(
                                         text = btnLabel,
                                         color = Color.Black,
-                                        fontSize = 12.5.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Black
                                     )
                                     Box(
@@ -379,8 +500,8 @@ private fun UiPackCard(
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.05f else 0.96f,
-        animationSpec = tween(160, easing = FastOutSlowInEasing),
+        targetValue = if (isSelected) 1.04f else 0.96f,
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
         label = "UiPackScale"
     )
 
@@ -390,76 +511,93 @@ private fun UiPackCard(
             isActive -> StatusGreen.copy(alpha = 0.7f)
             else -> SurfaceBorder
         },
-        animationSpec = tween(160),
+        animationSpec = tween(150),
         label = "UiPackBorder"
     )
 
     val animatedProgress by animateFloatAsState(
         targetValue = downloadProgress.coerceIn(0f, 1f),
-        animationSpec = tween(120),
+        animationSpec = tween(110),
         label = "UiDownloadProgress"
     )
 
     Column(
         modifier = Modifier
             .width(235.dp)
-            .height(210.dp)
+            .height(198.dp)
             .scale(scale)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(SurfaceCard)
-            .border(if (isSelected) 2.2.dp else 1.dp, borderCol, RoundedCornerShape(20.dp))
+            .border(if (isSelected) 2.2.dp else 1.dp, borderCol, RoundedCornerShape(18.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
             )
-            .padding(12.dp),
+            .padding(11.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Live Vector Schematic Preview of the UI Layout
+        // High-detail schematic wireframe preview of the console UI
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(112.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .height(106.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            pack.primaryAccent.copy(alpha = 0.25f),
+                            pack.primaryAccent.copy(alpha = 0.28f),
                             pack.secondaryAccent.copy(alpha = 0.14f),
-                            Color(0xFF0A0E17)
+                            Color(0xFF070B12)
                         )
                     )
                 )
-                .border(1.dp, pack.primaryAccent.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .border(1.dp, pack.primaryAccent.copy(alpha = 0.40f), RoundedCornerShape(12.dp))
         ) {
             UiSchematicCanvas(pack = pack)
 
-            // Top-right badge
+            // Rating pill top-left
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color.Black.copy(alpha = 0.70f))
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+            ) {
+                Text(
+                    text = pack.ratingText,
+                    color = Color(0xFFFBBF24),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            // Status pill top-right
             val badgeText = when {
-                isActive -> "ACTIVE"
-                isDownloaded -> "INSTALLED"
-                else -> "CLOUD PACK"
+                isActive -> "● ACTIVE"
+                isDownloaded -> "✓ INSTALLED"
+                else -> "⬇ CLOUD"
             }
             val badgeColor = when {
                 isActive -> StatusGreen
                 isDownloaded -> pack.primaryAccent
-                else -> Color.White.copy(alpha = 0.75f)
+                else -> PureWhite.copy(alpha = 0.85f)
             }
 
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(7.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(5.dp))
                     .background(Color.Black.copy(alpha = 0.72f))
-                    .border(0.8.dp, badgeColor.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .border(0.7.dp, badgeColor.copy(alpha = 0.8f), RoundedCornerShape(5.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
             ) {
                 Text(
                     text = badgeText,
                     color = badgeColor,
-                    fontSize = 8.5.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace
                 )
@@ -470,14 +608,14 @@ private fun UiPackCard(
             Text(
                 text = pack.layoutTag,
                 color = pack.primaryAccent,
-                fontSize = 9.sp,
+                fontSize = 8.5.sp,
                 fontWeight = FontWeight.ExtraBold,
                 fontFamily = FontFamily.Monospace
             )
             Text(
                 text = pack.title,
                 color = PureWhite,
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -485,18 +623,17 @@ private fun UiPackCard(
             Text(
                 text = pack.subtitle,
                 color = TextMuted,
-                fontSize = 10.5.sp,
+                fontSize = 10.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Download progress bar or status pill
         if (isDownloading) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
+                    .height(7.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(Color.Black.copy(alpha = 0.6f))
             ) {
@@ -515,13 +652,13 @@ private fun UiPackCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = pack.sizeText,
+                    text = "${pack.sizeText} • ${pack.downloadsText}",
                     color = PlatinumWhite,
-                    fontSize = 10.sp,
+                    fontSize = 9.5.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = if (isActive) "● Running" else if (isDownloaded) "▶ Tap to Apply" else "⬇ Tap to Download",
+                    text = if (isActive) "Running" else if (isDownloaded) "▶ Apply" else "⬇ Get Pack",
                     color = if (isActive) StatusGreen else if (isDownloaded) pack.primaryAccent else PureWhite,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -534,13 +671,12 @@ private fun UiPackCard(
 @Composable
 private fun UiSchematicCanvas(pack: UiThemePack) {
     Canvas(modifier = Modifier.fillMaxSize().padding(10.dp)) {
-        val cr = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+        val cr = CornerRadius(3.dp.toPx(), 3.dp.toPx())
         when (pack.style) {
             ConsoleUiStyle.ECHO_DEFAULT -> {
-                // Center carousel cards + bottom floating dock
                 val cardW = size.width * 0.24f
                 val cardH = size.height * 0.45f
-                val cy = size.height * 0.22f
+                val cy = size.height * 0.24f
                 drawRoundRect(
                     color = Color.White.copy(alpha = 0.2f),
                     topLeft = Offset(size.width * 0.08f, cy + 4.dp.toPx()),
@@ -559,89 +695,81 @@ private fun UiSchematicCanvas(pack: UiThemePack) {
                     size = Size(cardW * 0.85f, cardH * 0.85f),
                     cornerRadius = cr
                 )
-                // Bottom dock pill
                 drawRoundRect(
                     color = Color.White.copy(alpha = 0.28f),
                     topLeft = Offset(size.width * 0.22f, size.height * 0.80f),
-                    size = Size(size.width * 0.56f, size.height * 0.14f),
-                    cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                    size = Size(size.width * 0.56f, size.height * 0.13f),
+                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
                 )
             }
             ConsoleUiStyle.NEXTGEN_MEDIA_BAR -> {
-                // Top-left small icon ribbon + bottom-left hero artwork & CTA
-                for (i in 0 until 5) {
+                // Top-left mini squircle strip + lower-left Play Game pill + lower-right Trophy cards
+                for (i in 0 until 6) {
                     val isFirst = i == 1
-                    val s = if (isFirst) 16.dp.toPx() else 12.dp.toPx()
+                    val s = if (isFirst) 15.dp.toPx() else 11.dp.toPx()
                     drawRoundRect(
-                        color = if (isFirst) pack.secondaryAccent else Color.White.copy(alpha = 0.30f),
-                        topLeft = Offset(8.dp.toPx() + i * 20.dp.toPx(), 6.dp.toPx()),
+                        color = if (isFirst) PureWhite else Color.White.copy(alpha = 0.30f),
+                        topLeft = Offset(6.dp.toPx() + i * 18.dp.toPx(), 16.dp.toPx()),
                         size = Size(s, s),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                     )
                 }
-                // Hero title & play pill bottom-left
+                // Hero title & Play Game pill bottom-left
                 drawRoundRect(
                     color = Color.White.copy(alpha = 0.85f),
-                    topLeft = Offset(8.dp.toPx(), size.height * 0.52f),
-                    size = Size(size.width * 0.48f, 9.dp.toPx()),
+                    topLeft = Offset(6.dp.toPx(), size.height * 0.56f),
+                    size = Size(size.width * 0.42f, 8.dp.toPx()),
                     cornerRadius = cr
                 )
                 drawRoundRect(
-                    color = pack.primaryAccent,
-                    topLeft = Offset(8.dp.toPx(), size.height * 0.72f),
-                    size = Size(size.width * 0.28f, 12.dp.toPx()),
+                    color = PureWhite,
+                    topLeft = Offset(6.dp.toPx(), size.height * 0.74f),
+                    size = Size(size.width * 0.26f, 11.dp.toPx()),
                     cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                )
+                // Trophy Card bottom-right
+                drawRoundRect(
+                    color = pack.secondaryAccent.copy(alpha = 0.55f),
+                    topLeft = Offset(size.width * 0.62f, size.height * 0.56f),
+                    size = Size(size.width * 0.34f, size.height * 0.34f),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                 )
             }
             ConsoleUiStyle.HYBRID_DECK -> {
-                // Large square tiles row + bottom circular icons
-                val sq = size.height * 0.46f
+                // Large 1:1 square tiles row + 6 circular dock bubbles + bottom rule
+                val sq = size.height * 0.42f
                 for (i in 0 until 4) {
                     val active = i == 1
                     drawRoundRect(
-                        color = if (active) pack.primaryAccent else Color.White.copy(alpha = 0.22f),
-                        topLeft = Offset(8.dp.toPx() + i * (sq + 8.dp.toPx()), size.height * 0.16f),
+                        color = if (active) pack.primaryAccent else Color.White.copy(alpha = 0.24f),
+                        topLeft = Offset(8.dp.toPx() + i * (sq + 7.dp.toPx()), size.height * 0.22f),
                         size = Size(sq, sq),
                         cornerRadius = cr
                     )
                 }
-                // Circular system buttons on bottom
-                for (i in 0 until 5) {
+                for (i in 0 until 6) {
                     drawCircle(
-                        color = if (i % 2 == 0) pack.primaryAccent.copy(alpha = 0.7f) else pack.secondaryAccent.copy(alpha = 0.7f),
-                        radius = 4.5.dp.toPx(),
-                        center = Offset(size.width * 0.26f + i * 16.dp.toPx(), size.height * 0.84f)
+                        color = if (i == 1) pack.secondaryAccent else Color.White.copy(alpha = 0.65f),
+                        radius = 4.dp.toPx(),
+                        center = Offset(size.width * 0.23f + i * 14.dp.toPx(), size.height * 0.82f)
                     )
                 }
             }
             ConsoleUiStyle.DUAL_SCREEN_3D -> {
-                // Top 3D banner box + bottom grid of squares
+                // Top 3D rotating cartridge stage + bottom light touch grid & 3 bezel buttons
                 drawRoundRect(
-                    color = pack.primaryAccent.copy(alpha = 0.5f),
-                    topLeft = Offset(size.width * 0.18f, 2.dp.toPx()),
-                    size = Size(size.width * 0.64f, size.height * 0.36f),
+                    color = Color(0xFF2E4369),
+                    topLeft = Offset(size.width * 0.08f, 14.dp.toPx()),
+                    size = Size(size.width * 0.84f, size.height * 0.34f),
                     cornerRadius = cr
                 )
-                // Divider hinge
-                drawLine(
-                    color = Color.White.copy(alpha = 0.35f),
-                    start = Offset(0f, size.height * 0.44f),
-                    end = Offset(size.width, size.height * 0.44f),
-                    strokeWidth = 1.5.dp.toPx()
+                // Lower light touch screen
+                drawRoundRect(
+                    color = Color(0xFFD8E1EC).copy(alpha = 0.85f),
+                    topLeft = Offset(size.width * 0.08f, size.height * 0.54f),
+                    size = Size(size.width * 0.84f, size.height * 0.42f),
+                    cornerRadius = cr
                 )
-                // Lower touch grid (2 rows x 4 cols)
-                val cell = 11.dp.toPx()
-                val startX = size.width * 0.22f
-                for (r in 0 until 2) {
-                    for (c in 0 until 4) {
-                        drawRoundRect(
-                            color = if (r == 0 && c == 1) pack.secondaryAccent else Color.White.copy(alpha = 0.28f),
-                            topLeft = Offset(startX + c * (cell + 5.dp.toPx()), size.height * 0.52f + r * (cell + 4.dp.toPx())),
-                            size = Size(cell, cell),
-                            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
-                        )
-                    }
-                }
             }
         }
     }

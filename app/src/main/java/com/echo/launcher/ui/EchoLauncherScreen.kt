@@ -139,6 +139,7 @@ fun EchoLauncherScreen(
     val uiPacks = remember { uiThemeRepository.availablePacks }
     var downloadedPackIds by remember { mutableStateOf(uiThemeRepository.getDownloadedIds()) }
     var activeUiStyle by remember { mutableStateOf(uiThemeRepository.getActiveUiStyle()) }
+    var isHybridLightTheme by remember { mutableStateOf(uiThemeRepository.isHybridLightTheme) }
     var selectedUiHubIndex by remember { mutableIntStateOf(0) }
     var downloadingPackId by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableFloatStateOf(0f) }
@@ -157,6 +158,44 @@ fun EchoLauncherScreen(
 
     fun playNavSound(direction: Int) {
         try { view.playSoundEffect(direction) } catch (_: Exception) {}
+    }
+
+    fun handleInstantPreviewUiPack(pack: UiThemePack) {
+        playClickSound()
+        activeUiStyle = pack.style
+        uiThemeRepository.setActiveUiStyle(pack.style)
+        isUiHubOpen = false
+        toastNotificationText = "👁 Test-Driving ${pack.title}"
+        coroutineScope.launch {
+            delay(2800)
+            if (toastNotificationText == "👁 Test-Driving ${pack.title}") {
+                toastNotificationText = null
+            }
+        }
+    }
+
+    fun handleDownloadAllUiPacks() {
+        playClickSound()
+        if (downloadingPackId != null) return
+        coroutineScope.launch {
+            for (pack in uiPacks) {
+                if (!downloadedPackIds.contains(pack.id)) {
+                    downloadingPackId = pack.id
+                    for (step in 1..5) {
+                        delay(45)
+                        downloadProgress = step / 5f
+                    }
+                    downloadedPackIds = uiThemeRepository.markPackDownloaded(pack.id)
+                }
+            }
+            downloadingPackId = null
+            downloadProgress = 0f
+            toastNotificationText = "✓ All ${uiPacks.size} Console UI Shells Installed"
+            delay(2800)
+            if (toastNotificationText == "✓ All ${uiPacks.size} Console UI Shells Installed") {
+                toastNotificationText = null
+            }
+        }
     }
 
     fun handleDownloadOrApplyUiPack(pack: UiThemePack) {
@@ -181,7 +220,7 @@ fun EchoLauncherScreen(
                 downloadProgress = 0.08f
                 val steps = 8
                 for (step in 1..steps) {
-                    delay(75)
+                    delay(70)
                     downloadProgress = (step.toFloat() / steps.toFloat()).coerceIn(0.1f, 1.0f)
                 }
                 downloadedPackIds = uiThemeRepository.markPackDownloaded(pack.id)
@@ -189,6 +228,7 @@ fun EchoLauncherScreen(
                 uiThemeRepository.setActiveUiStyle(pack.style)
                 downloadingPackId = null
                 downloadProgress = 0f
+                isUiHubOpen = false
                 toastNotificationText = "⬇ Installed & Applied ${pack.title}"
                 delay(2800)
                 if (toastNotificationText == "⬇ Installed & Applied ${pack.title}") {
@@ -608,13 +648,28 @@ fun EchoLauncherScreen(
 
     val useSpannedDualScreenLayout = isDualScreenMode
 
+    /**
+     * Renders the chosen Full-Screen Console UI Shell (or Default ECHO OS Core).
+     * Notice that Horizon 5, N-Hybrid Deck, and Dual-Screen 3D render their own authentic
+     * top status headers & docks so they look like the real consoles!
+     */
     @Composable
-    fun RenderActiveConsoleBody(modifier: Modifier = Modifier) {
+    fun RenderConsoleShellScreen(modifier: Modifier = Modifier) {
         when (activeUiStyle) {
             ConsoleUiStyle.NEXTGEN_MEDIA_BAR -> {
                 NextGenHorizonLayout(
                     apps = currentTabApps,
                     selectedIndex = activeCarouselIndex,
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab ->
+                        selectedTab = tab
+                        currentFocusZone = FocusZone.CAROUSEL
+                        playClickSound()
+                    },
+                    powerInfo = powerInfo,
+                    ramUsagePercent = telemetry.ramUsagePercent,
+                    isDualScreenMode = isDualScreenMode,
+                    onToggleDualScreen = ::toggleDualScreen,
                     onIndexSelected = { index ->
                         if (selectedTab == LauncherTab.GAMES) selectedGameIndex = index else selectedMediaIndex = index
                         currentFocusZone = FocusZone.CAROUSEL
@@ -635,6 +690,10 @@ fun EchoLauncherScreen(
                         isAllAppsOpen = true
                         currentFocusZone = FocusZone.ALL_APPS_MODAL
                     },
+                    onOpenSettings = {
+                        playClickSound()
+                        repository.launchSettings()
+                    },
                     modifier = modifier
                 )
             }
@@ -642,6 +701,16 @@ fun EchoLauncherScreen(
                 HybridPortableDeckLayout(
                     apps = currentTabApps,
                     selectedIndex = activeCarouselIndex,
+                    powerInfo = powerInfo,
+                    ramUsagePercent = telemetry.ramUsagePercent,
+                    isLightTheme = isHybridLightTheme,
+                    onToggleLightTheme = {
+                        playClickSound()
+                        isHybridLightTheme = !isHybridLightTheme
+                        uiThemeRepository.isHybridLightTheme = isHybridLightTheme
+                    },
+                    isDualScreenMode = isDualScreenMode,
+                    onToggleDualScreen = ::toggleDualScreen,
                     onIndexSelected = { index ->
                         if (selectedTab == LauncherTab.GAMES) selectedGameIndex = index else selectedMediaIndex = index
                         currentFocusZone = FocusZone.CAROUSEL
@@ -667,6 +736,10 @@ fun EchoLauncherScreen(
                 StereoscopicDual3DLayout(
                     apps = currentTabApps,
                     selectedIndex = activeCarouselIndex,
+                    powerInfo = powerInfo,
+                    ramUsagePercent = telemetry.ramUsagePercent,
+                    isDualScreenMode = isDualScreenMode,
+                    onToggleDualScreen = ::toggleDualScreen,
                     onIndexSelected = { index ->
                         if (selectedTab == LauncherTab.GAMES) selectedGameIndex = index else selectedMediaIndex = index
                         currentFocusZone = FocusZone.CAROUSEL
@@ -682,77 +755,20 @@ fun EchoLauncherScreen(
                         isUiHubOpen = true
                     },
                     onOptimize = { triggerDeviceOptimization(openModal = true) },
+                    onAllApps = {
+                        playClickSound()
+                        isAllAppsOpen = true
+                        currentFocusZone = FocusZone.ALL_APPS_MODAL
+                    },
+                    onOpenSettings = {
+                        playClickSound()
+                        repository.launchSettings()
+                    },
                     modifier = modifier
                 )
             }
             ConsoleUiStyle.ECHO_DEFAULT -> {
-                Column(
-                    modifier = modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    GameCarousel(
-                        apps = currentTabApps,
-                        selectedIndex = activeCarouselIndex,
-                        onIndexSelected = { index ->
-                            if (selectedTab == LauncherTab.GAMES) {
-                                selectedGameIndex = index
-                            } else {
-                                selectedMediaIndex = index
-                            }
-                            currentFocusZone = FocusZone.CAROUSEL
-                            playClickSound()
-                        },
-                        onLaunch = { app ->
-                            launchAppWithOptionalBoost(app)
-                        },
-                        onOptions = {
-                            playClickSound()
-                            isDetailsOpen = true
-                        },
-                        currentFocusZone = currentFocusZone,
-                        gamepadLayout = gamepadLayout
-                    )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    if (!useSpannedDualScreenLayout) {
-                        ConsoleFooter(
-                            selectedActionIndex = selectedDockIndex,
-                            onActionSelected = { index ->
-                                selectedDockIndex = index
-                                currentFocusZone = FocusZone.DOCK
-                                playClickSound()
-                            },
-                            onActionTriggered = ::triggerDockAction,
-                            currentFocusZone = currentFocusZone
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .focusRequester(focusRequester)
-            .focusable()
-            .onPreviewKeyEvent { keyEvent ->
-                val isDown = keyEvent.type == KeyEventType.KeyDown
-                handleKeyNavigation(keyEvent.nativeKeyEvent.keyCode, isDown)
-            }
-    ) {
-        if (useSpannedDualScreenLayout) {
-            // ANBERNIC RG DS / DUAL-SCREEN SPANNED CLAMSHELL MODE (Covers Both Screens)
-            Column(modifier = Modifier.fillMaxSize()) {
-                // UPPER SCREEN: Active Console Shell
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
+                Box(modifier = modifier.fillMaxSize()) {
                     AmbientBackground(targetAccentColor = activeAccentColor)
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -776,6 +792,7 @@ fun EchoLauncherScreen(
                             isDualScreenMode = isDualScreenMode,
                             onToggleDualScreen = ::toggleDualScreen
                         )
+
                         if (!isDefaultHomeLauncher) {
                             DefaultHomePromptBanner(
                                 onSetDefault = {
@@ -784,6 +801,7 @@ fun EchoLauncherScreen(
                                 }
                             )
                         }
+
                         if (toastNotificationText != null) {
                             OptimizationToastBanner(
                                 message = toastNotificationText!!,
@@ -791,8 +809,71 @@ fun EchoLauncherScreen(
                             )
                         }
 
-                        RenderActiveConsoleBody(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        GameCarousel(
+                            apps = currentTabApps,
+                            selectedIndex = activeCarouselIndex,
+                            onIndexSelected = { index ->
+                                if (selectedTab == LauncherTab.GAMES) {
+                                    selectedGameIndex = index
+                                } else {
+                                    selectedMediaIndex = index
+                                }
+                                currentFocusZone = FocusZone.CAROUSEL
+                                playClickSound()
+                            },
+                            onLaunch = { app ->
+                                launchAppWithOptionalBoost(app)
+                            },
+                            onOptions = {
+                                playClickSound()
+                                isDetailsOpen = true
+                            },
+                            currentFocusZone = currentFocusZone,
+                            gamepadLayout = gamepadLayout
+                        )
+
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        if (!useSpannedDualScreenLayout) {
+                            ConsoleFooter(
+                                selectedActionIndex = selectedDockIndex,
+                                onActionSelected = { index ->
+                                    selectedDockIndex = index
+                                    currentFocusZone = FocusZone.DOCK
+                                    playClickSound()
+                                },
+                                onActionTriggered = ::triggerDockAction,
+                                currentFocusZone = currentFocusZone
+                            )
+                        }
                     }
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { keyEvent ->
+                val isDown = keyEvent.type == KeyEventType.KeyDown
+                handleKeyNavigation(keyEvent.nativeKeyEvent.keyCode, isDown)
+            }
+    ) {
+        if (useSpannedDualScreenLayout) {
+            // ANBERNIC RG DS / DUAL-SCREEN SPANNED CLAMSHELL MODE (Covers Both Screens)
+            Column(modifier = Modifier.fillMaxSize()) {
+                // UPPER SCREEN: Active Console UI Shell
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    RenderConsoleShellScreen(modifier = Modifier.fillMaxSize())
                 }
 
                 // Physical Clamshell Hinge Seam Guard
@@ -845,48 +926,33 @@ fun EchoLauncherScreen(
             }
         } else {
             // SINGLE SCREEN OR PHYSICAL DISPLAY-2 PRESENTATION MODE
-            AmbientBackground(targetAccentColor = activeAccentColor)
+            Box(modifier = Modifier.fillMaxSize()) {
+                RenderConsoleShellScreen(modifier = Modifier.fillMaxSize())
 
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                TopBar(
-                    selectedTab = selectedTab,
-                    onTabSelected = { tab ->
-                        selectedTab = tab
-                        currentFocusZone = FocusZone.CAROUSEL
-                        playClickSound()
-                    },
-                    currentFocusZone = currentFocusZone,
-                    powerInfo = powerInfo,
-                    ramUsagePercent = telemetry.ramUsagePercent,
-                    onOptimizeClick = { triggerDeviceOptimization(openModal = true) },
-                    onOpenUiHub = {
-                        playClickSound()
-                        isUiHubOpen = true
-                    },
-                    isDualScreenMode = isDualScreenMode,
-                    onToggleDualScreen = ::toggleDualScreen
-                )
-
-                if (!isDefaultHomeLauncher) {
-                    DefaultHomePromptBanner(
-                        onSetDefault = {
-                            playClickSound()
-                            onRequestDefaultHome()
+                // Floating Default Home & Toast notification overlays for custom full-screen shells
+                if (activeUiStyle != ConsoleUiStyle.ECHO_DEFAULT) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 46.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (!isDefaultHomeLauncher) {
+                            DefaultHomePromptBanner(
+                                onSetDefault = {
+                                    playClickSound()
+                                    onRequestDefaultHome()
+                                }
+                            )
                         }
-                    )
+                        if (toastNotificationText != null) {
+                            OptimizationToastBanner(
+                                message = toastNotificationText!!,
+                                onClick = { isOptimizerOpen = true }
+                            )
+                        }
+                    }
                 }
-
-                if (toastNotificationText != null) {
-                    OptimizationToastBanner(
-                        message = toastNotificationText!!,
-                        onClick = { isOptimizerOpen = true }
-                    )
-                }
-
-                RenderActiveConsoleBody(modifier = Modifier.weight(1f))
             }
         }
 
@@ -970,6 +1036,8 @@ fun EchoLauncherScreen(
                 playNavSound(SoundEffectConstants.NAVIGATION_LEFT)
             },
             onDownloadOrApply = ::handleDownloadOrApplyUiPack,
+            onInstantPreview = ::handleInstantPreviewUiPack,
+            onDownloadAllPacks = ::handleDownloadAllUiPacks,
             onUninstallPack = ::handleUninstallUiPack,
             onDismiss = {
                 isUiHubOpen = false
